@@ -159,13 +159,18 @@ fn popup_at(app: &AppHandle, window: &Window, menu: &Menu<Wry>, x: f64, y: f64) 
 #[tauri::command]
 pub fn deck_menu(app: AppHandle, window: Window, x: f64, y: f64) -> Result<(), String> {
     let build = || -> tauri::Result<Menu<Wry>> {
-        let (stacked, count) = app.state::<Deck>().read(|c| (c.stacked, c.accounts.len()));
+        let (stacked, count, hunt) = app.state::<Deck>().read(|c| (c.stacked, c.accounts.len(), c.hunt));
+        let hunt_text = match crate::hunt::installed_version(&app) {
+            Some(version) if hunt => format!("Onde caçar (extensão /hunt {version})"),
+            _ => "Onde caçar (extensão /hunt)".to_owned(),
+        };
         Menu::with_items(
             &app,
             &[
                 &restore_submenu(&app)?,
                 &PredefinedMenuItem::separator(&app)?,
                 &CheckMenuItem::with_id(&app, "deck:stack", "Duas contas empilhadas", count == 2, stacked, None::<&str>)?,
+                &CheckMenuItem::with_id(&app, "deck:hunt", hunt_text, true, hunt, None::<&str>)?,
             ],
         )
     };
@@ -347,6 +352,7 @@ pub fn dispatch(app: &AppHandle, action: &str) {
             }
         }
         (Some("deck"), Some("ultra")) => automation::set_ultra(app, !deck.read(|c| c.ultra)),
+        (Some("deck"), Some("hunt")) => crate::hunt::set(app, !deck.read(|c| c.hunt)),
         (Some("deck"), Some("motion")) => automation::set_reduce_motion(app, !deck.read(|c| c.reduce_motion)),
         (Some("deck"), Some("echo")) => automation::set_echo(app, !app.state::<automation::Automation>().echo()),
         _ => {}

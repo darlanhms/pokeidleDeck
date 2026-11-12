@@ -41,6 +41,7 @@ pub fn start(app: AppHandle, phase: String) {
             "shell" => shell(&app, &mut report).await,
             "auto" => automations(&app, &mut report).await,
             "lives" => lives_phase(&app, &mut report).await,
+            "hunt" => hunt_phase(&app, &mut report).await,
             other => report.check(false, format!("fase desconhecida: {other}")),
         }
         let path = deck::data_dir(&app).join(format!("selftest-{phase}.txt"));
@@ -651,4 +652,36 @@ async fn lives_phase(app: &AppHandle, report: &mut Report) {
     act(app, format!("lives:toggle:{id}")).await;
     let gone = !lives::has_window(app, id) && app.get_window(&format!("lives-{}", id.simple())).is_none();
     report.check(gone, "desligar as lives na conta fecha a janela e os players");
+}
+
+/// A /hunt: baixa da loja, as contas reabrem com ela, e ela sobe na página do jogo.
+async fn hunt_phase(app: &AppHandle, report: &mut Report) {
+    let handle = app.clone();
+    let installed = tauri::async_runtime::spawn_blocking(move || crate::hunt::install(&handle)).await;
+    let version = installed.ok().and_then(Result::ok);
+    report.check(version.is_some(), format!("baixou a extensão da loja ({version:?})"));
+    crate::hunt::load(app);
+    report.check(crate::hunt::installed_version(app) == version, "a versão baixada é lida de novo da pasta");
+    app.state::<deck::Deck>().update(|c| c.hunt = true);
+    on_main(app, crate::accounts::respawn_all).await;
+    let id = app.state::<deck::Deck>().accounts()[0].id;
+    report.check(wait_loaded(app, id).await, "a conta reabriu com o jogo");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let probe = eval(
+        app,
+        id,
+        "return { hook: !!window.__pokeidleHunt?.hookInstalado, css: !!document.querySelector('style[data-deck=hunt]'), \
+         ritmo: !!window.__pokeidleHunt?.ritmo }",
+    )
+    .await;
+    let ok = probe.as_ref().is_ok_and(|v| v["hook"] == true && v["css"] == true && v["ritmo"] == true);
+    report.check(ok, format!("a extensão subiu na página ({probe:?})"));
+    let list = tauri::async_runtime::spawn_blocking(crate::hunt::hunt_wishlist).await;
+    let list_ok = list.as_ref().is_ok_and(|r| r.is_ok());
+    report.check(list_ok, "a ponte da Shiny WishList busca a lista");
+    app.state::<deck::Deck>().update(|c| c.hunt = false);
+    on_main(app, crate::accounts::respawn_all).await;
+    report.check(wait_loaded(app, id).await, "desligar reabre a conta");
+    let off = eval(app, id, "return !!window.__pokeidleHunt").await;
+    report.check(off.as_ref().is_ok_and(|v| v == false), format!("desligada, a extensão some ({off:?})"));
 }

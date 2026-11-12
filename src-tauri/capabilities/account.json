@@ -4,5 +4,5 @@
   "description": "A página do jogo em cada conta: só reporta o próprio estado, os cliques do eco e o F11",
   "webviews": ["acc-*"],
   "remote": { "urls": ["https://pokeidle.io/*"] },
-  "permissions": ["allow-account-report", "allow-account-click", "allow-page-key"]
+  "permissions": ["allow-account-report", "allow-hunt-wishlist", "allow-account-click", "allow-page-key"]
 }

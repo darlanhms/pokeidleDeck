@@ -9,7 +9,7 @@ use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Webview, WebviewBu
 pub const TWITCH_CLIENT_ID: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const TIMEOUT: Duration = Duration::from_secs(15);
 
-fn agent() -> ureq::Agent {
+pub fn agent() -> ureq::Agent {
     let builder = ureq::AgentBuilder::new().timeout(TIMEOUT).user_agent(USER_AGENT);
     match native_tls::TlsConnector::new() {
         Ok(tls) => builder.tls_connector(std::sync::Arc::new(tls)).build(),

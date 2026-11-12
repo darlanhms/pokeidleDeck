@@ -27,6 +27,7 @@ fn main() {
         "restock_set",
         "account_eval",
         "account_report",
+        "hunt_wishlist",
         "prompt_info",
         "prompt_fit",
         "prompt_submit",

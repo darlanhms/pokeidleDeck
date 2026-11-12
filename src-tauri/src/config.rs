@@ -275,6 +275,8 @@ pub struct DeckConfig {
     /// A página vê o "reduzir movimento" ligado e o jogo corta as animações contínuas.
     pub reduce_motion: bool,
     pub lives: LivesConfig,
+    /// A extensão /hunt (onde caçar) injetada nas contas.
+    pub hunt: bool,
 }
 
 impl Default for DeckConfig {
@@ -294,6 +296,7 @@ impl Default for DeckConfig {
             ultra: false,
             reduce_motion: true,
             lives: LivesConfig::default(),
+            hunt: false,
         }
     }
 }

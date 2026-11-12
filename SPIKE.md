@@ -19,6 +19,7 @@ DECK_SELFTEST=2 DECK_DATA_DIR=/tmp/deck-teste cargo run
 Fase 2 (layouts, ampliar, zoom, desligar, nome, reordenar, remover/restaurar): `DECK_SELFTEST=shell`.
 Fase 3 (menos animações, eco, ULTRA, recompra): `DECK_SELFTEST=auto`.
 Fase 4 (lives; precisa de internet e de um canal da Kick da lista no ar): `DECK_SELFTEST=lives`.
+Extensão /hunt (baixa da loja do Firefox e injeta nas contas): `DECK_SELFTEST=hunt`.
 
 O resultado fica em `$DECK_DATA_DIR/selftest-<fase>.txt`. O log da Kick fica em `kick-spike.log`, na pasta de
 dados (`~/Library/Application Support/com.darlanhermes.pokeidle-deck`).

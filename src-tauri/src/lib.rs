@@ -16,6 +16,7 @@ mod live_check;
 mod lives;
 mod lives_config;
 mod memory;
+mod hunt;
 mod official;
 mod page;
 mod points;
@@ -44,6 +45,7 @@ pub fn run() {
         .manage(points::Points::default())
         .manage(central::Central::default())
         .manage(official::Official::default())
+        .manage(hunt::Hunt::default())
         .invoke_handler(tauri::generate_handler![
             menus::deck_state,
             menus::deck_action,
@@ -68,6 +70,7 @@ pub fn run() {
             central::central_action,
             points::registro_open_file,
             automation::account_click,
+            hunt::hunt_wishlist,
             automation::restock_get,
             automation::restock_set,
             accounts::account_eval,
@@ -80,7 +83,9 @@ pub fn run() {
         .on_menu_event(menus::on_menu_event)
         .setup(|app| {
             let handle = app.handle();
+            hunt::load(handle);
             deck::setup(handle)?;
+            hunt::update_later(handle);
             memory::start(handle);
             if std::env::var_os("DECK_SELFTEST").is_none() {
                 let handle = handle.clone();

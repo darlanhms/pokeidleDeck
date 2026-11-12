@@ -51,7 +51,10 @@ pub fn spawn(window: &Window, account: &Account) -> tauri::Result<Webview> {
         .initialization_script(motion)
         .initialization_script(automation::ECHO_JS)
         .initialization_script(RECOMPRA_JS)
-        .initialization_script(REPORT_JS)
+        .initialization_script(REPORT_JS);
+    let builder = crate::hunt::scripts(window.app_handle())
+        .into_iter()
+        .fold(builder, |b, script| b.initialization_script(script))
         .on_page_load(move |webview, payload| {
             // Desligar navega para about:blank; isso não é "carregando" o jogo.
             if payload.url().scheme() != "https" {
@@ -243,6 +246,18 @@ pub fn toggle_mute(app: &AppHandle, id: Uuid) {
     });
     if let (Some(muted), Some(webview)) = (muted, webview(app, id)) {
         webkit::set_page_muted(&webview, muted);
+    }
+    deck::refresh(app);
+}
+
+/// Recria a página de cada conta ligada (os scripts injetados só entram na criação).
+pub fn respawn_all(app: &AppHandle) {
+    for account in app.state::<Deck>().accounts().into_iter().filter(|a| !a.off) {
+        if let Some(webview) = webview(app, account.id) {
+            webkit::close_page(&webview);
+            let _ = webview.close();
+        }
+        attach(app, &account);
     }
     deck::refresh(app);
 }

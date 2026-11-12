@@ -41,6 +41,12 @@ Nasceu como a versão para Mac do [PokeIdleMulti](https://github.com/artbruno35/
 - **Eco:** o que você faz numa conta se repete nas outras.
 - **ULTRA** e **menos animações:** deixam o jogo mais leve com várias contas abertas.
 
+### Onde caçar (/hunt)
+
+No menu **⋯**, **Onde caçar** liga a extensão [/hunt for PokeIdle](https://pokeidleguide.io/#hunt), que mostra
+acima do seu pokémon em campo as melhores hunts por XP/h e ouro/h. O deck baixa a versão publicada da extensão
+na primeira vez e a mantém atualizada; o código dela não vem com o deck.
+
 ### Lives da Twitch e da Kick
 
 O jogo dá bônus de XP, captura e shiny em troca dos pontos dos canais dos streamers oficiais. O deck:

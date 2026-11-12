@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hunt-wishlist"
+description = "Enables the hunt_wishlist command without any pre-configured scope."
+commands.allow = ["hunt_wishlist"]
+
+[[permission]]
+identifier = "deny-hunt-wishlist"
+description = "Denies the hunt_wishlist command without any pre-configured scope."
+commands.deny = ["hunt_wishlist"]
