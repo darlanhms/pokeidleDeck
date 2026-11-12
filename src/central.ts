@@ -164,7 +164,7 @@ function menuFor(account: AccountView, site: SiteView, row: Row): HTMLElement {
     }
   }
   if (site.slots.length && row.state !== "closed") {
-    menu.append(el("span", { className: "menu-title", textContent: `Tocar ${row.channel} na` }));
+    menu.append(el("span", { className: "menu-title", textContent: "Trocar na vaga" }));
     for (const slot of site.slots) {
       const here = slot.current === row.channel;
       const item = el(
@@ -196,7 +196,7 @@ function renderRow(account: AccountView, site: SiteView, row: Row): HTMLElement 
   const cheapest = Math.min(...row.rewards.filter((r) => !r.blocked).map((r) => r.cost), 300);
   const progress = row.ready ? 100 : row.points === null ? 0 : Math.min(100, (row.points / cheapest) * 100);
   const canPlay = row.state === "queued" && site.slots.length > 0 && site.login !== false;
-  const primaryLabel = row.ready ? "Resgatar ▾" : canPlay ? "Tocar na vaga ▾" : row.state === "closed" ? "Voltar à lista" : "⋯";
+  const primaryLabel = row.ready ? "Resgatar ▾" : canPlay ? "Trocar na vaga ▾" : row.state === "closed" ? "Voltar à lista" : "⋯";
   const primary = el("button", {
     type: "button",
     className: `row-action ${row.ready ? "ready" : primaryLabel === "⋯" ? "quiet" : ""}`,
