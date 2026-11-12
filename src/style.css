@@ -927,9 +927,16 @@ body.lives {
   color: #ffffff;
 }
 
-.lives-bar #park {
+.lives-bar > button {
   align-self: center;
   height: 28px;
+}
+
+.lives-bar > button.active,
+.lives-bar > button.active:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent-text);
 }
 
 .lives-empty {

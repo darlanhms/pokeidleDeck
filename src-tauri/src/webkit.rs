@@ -238,6 +238,72 @@ pub async fn cookies(app: &AppHandle, store: Uuid, domain: &str) -> Result<Vec<(
         .map_err(|_| "o WebKit não respondeu".to_owned())
 }
 
+thread_local! {
+    static BLOCK_LIST: std::cell::RefCell<Option<Retained<objc2_web_kit::WKContentRuleList>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Anúncios e rastreadores das lives (a mesma lista do original). Vídeo, Kick, Twitch e o Cloudflare
+/// (anti-robô) passam.
+const BLOCKED: [&str; 29] = [
+    "googlesyndication.com", "doubleclick.net", "googleadservices.com", "adtrafficquality.google",
+    "imasdk.googleapis.com", "openx.net", "openxcdn.net", "criteo.com", "criteo.net", "dnacdn.net",
+    "creativecdn.com", "id5-sync.com", "amazon-adsystem.com", "googletagmanager.com",
+    "google-analytics.com", "tiktok.com", "tiktokw.us", "facebook.net", "facebook.com",
+    "analytics.yahoo.com", "quora.com", "litix.io", "datazoom.io", "datadoghq-browser-agent.com",
+    "cloudflareinsights.com", "scorecardresearch.com", "onetrust.com", "stripe.com", "stripe.network",
+];
+
+fn block_rules() -> String {
+    let rules: Vec<serde_json::Value> = BLOCKED
+        .iter()
+        .map(|domain| {
+            serde_json::json!({
+                "trigger": { "url-filter": format!(r"^[a-z]+://([^/]+\.)?{}[:/]", domain.replace('.', r"\.")) },
+                "action": { "type": "block" },
+            })
+        })
+        .collect();
+    serde_json::Value::Array(rules).to_string()
+}
+
+/// Compila a lista de bloqueio; as webviews criadas depois disso a recebem em `add_block_list`.
+pub async fn compile_block_list(app: &AppHandle) {
+    let (reply, rx) = Reply::<()>::new();
+    let json = block_rules();
+    let started = app.run_on_main_thread(move || unsafe {
+        let mtm = MainThreadMarker::new_unchecked();
+        let Some(store) = objc2_web_kit::WKContentRuleListStore::defaultStore(mtm) else {
+            return reply.send(());
+        };
+        let done = RcBlock::new(move |list: *mut objc2_web_kit::WKContentRuleList, error: *mut NSError| {
+            match Retained::retain(list) {
+                Some(list) => BLOCK_LIST.with(|b| *b.borrow_mut() = Some(list)),
+                None => eprintln!(
+                    "[webkit] lista de bloqueio não compilou: {:?}",
+                    error.as_ref().map(|e| e.localizedDescription().to_string())
+                ),
+            }
+            reply.send(());
+        });
+        store.compileContentRuleListForIdentifier_encodedContentRuleList_completionHandler(
+            Some(ns_string!("deck-bloqueio")),
+            Some(&NSString::from_str(&json)),
+            Some(&done),
+        );
+    });
+    if started.is_ok() {
+        let _ = tokio::time::timeout(Duration::from_secs(10), rx).await;
+    }
+}
+
+pub fn add_block_list(config: &WKWebViewConfiguration) {
+    BLOCK_LIST.with(|b| {
+        if let Some(list) = b.borrow().as_ref() {
+            unsafe { config.userContentController().addContentRuleList(list) };
+        }
+    });
+}
+
 /// Muta o áudio da página inteira (API privada `_setPageMuted:`; não é App Store).
 pub fn set_page_muted(webview: &Webview, muted: bool) {
     let _ = webview.with_webview(move |platform| unsafe {

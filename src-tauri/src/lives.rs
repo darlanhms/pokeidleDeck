@@ -62,8 +62,18 @@ struct Slot {
     playing: Option<bool>,
 }
 
+#[derive(Clone, Debug)]
+struct Chat {
+    label: String,
+    site: Site,
+}
+
 struct LiveWindow {
     slots: Vec<Slot>,
+    /// Modo "Pontos": a página do canal de cada live, lado a lado, só com o botão dos pontos.
+    points: bool,
+    full_page: bool,
+    chats: Vec<Chat>,
     revealed: bool,
     selected: usize,
     twitch_login: Option<bool>,
@@ -166,8 +176,10 @@ pub fn open(app: &AppHandle, id: Uuid) {
     for (index, (site, login)) in sites.into_iter().enumerate() {
         let label = format!("live-{}-{index}", id.simple());
         let handle_label = label.clone();
+        let config = webkit::configuration(mtm, Some(id), true, true);
+        webkit::add_block_list(&config);
         let builder = WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()))
-            .with_webview_configuration(webkit::configuration(mtm, Some(id), true, true))
+            .with_webview_configuration(config)
             .user_agent(USER_AGENT)
             .background_throttling(BackgroundThrottlingPolicy::Disabled)
             .initialization_script(VISIBLE_JS)
@@ -202,7 +214,16 @@ pub fn open(app: &AppHandle, id: Uuid) {
     }
     app.state::<Lives>().windows.lock().unwrap().insert(
         id,
-        LiveWindow { slots, revealed: false, selected: 0, twitch_login: None, kick_login: None },
+        LiveWindow {
+            slots,
+            points: false,
+            full_page: false,
+            chats: Vec::new(),
+            revealed: false,
+            selected: 0,
+            twitch_login: None,
+            kick_login: None,
+        },
     );
 
     let handle = app.clone();
@@ -212,7 +233,10 @@ pub fn open(app: &AppHandle, id: Uuid) {
             api.prevent_close();
             park(&handle, id);
         }
-        WindowEvent::Resized(_) => layout(&handle, id),
+        WindowEvent::Resized(_) => {
+            remember_points_height(&handle, id);
+            layout(&handle, id);
+        }
         _ => {}
     });
     layout(app, id);
@@ -228,6 +252,7 @@ pub fn open(app: &AppHandle, id: Uuid) {
 /// Fecha a janela e os players da conta (lives desligadas na conta, conta desligada ou removida).
 pub fn close(app: &AppHandle, id: Uuid) {
     let Some(state) = app.state::<Lives>().windows.lock().unwrap().remove(&id) else { return };
+    close_chats(app, &state.chats);
     for slot in &state.slots {
         if let Some(webview) = app.get_webview(&slot.label) {
             webkit::close_page(&webview);
@@ -268,20 +293,45 @@ fn layout(app: &AppHandle, id: Uuid) {
     let lives = app.state::<Lives>();
     let windows = lives.windows.lock().unwrap();
     let Some(state) = windows.get(&id) else { return };
+    let points = state.points && !state.chats.is_empty();
     for (index, slot) in state.slots.iter().enumerate() {
         let Some(webview) = app.get_webview(&slot.label) else { continue };
         let _ = webview.set_bounds(content);
-        let visible = slot.url.is_some() && (!state.revealed || index == state.selected);
+        let visible = !points && slot.url.is_some() && (!state.revealed || index == state.selected);
         let _ = if visible { webview.show() } else { webview.hide() };
+    }
+    if points {
+        let height = (size.height - inset - TAB_BAR).max(0.0);
+        let width = size.width / state.chats.len() as f64;
+        for (index, chat) in state.chats.iter().enumerate() {
+            let Some(webview) = app.get_webview(&chat.label) else { continue };
+            let _ = webview.set_bounds(Rect {
+                position: LogicalPosition::new(index as f64 * width, inset + TAB_BAR).into(),
+                size: LogicalSize::new(width, height).into(),
+            });
+            // A Kick só mostra o botão dos pontos com a página larga (desktop): o zoom encolhe a página
+            // para ela caber na coluna com esse layout.
+            if chat.site == Site::Kick {
+                let _ = webview.set_zoom((width / KICK_DESKTOP_WIDTH).clamp(0.35, 1.0));
+            }
+            let _ = webview.show();
+        }
     }
     drop(windows);
     let _ = app.emit_to(ui_label(id).as_str(), "lives-ui", ui_state(app, id));
 }
 
 pub fn park(app: &AppHandle, id: Uuid) {
-    if let Some(state) = app.state::<Lives>().windows.lock().unwrap().get_mut(&id) {
-        state.revealed = false;
-    }
+    let chats = match app.state::<Lives>().windows.lock().unwrap().get_mut(&id) {
+        Some(state) => {
+            state.revealed = false;
+            state.points = false;
+            std::mem::take(&mut state.chats)
+        }
+        None => Vec::new(),
+    };
+    // As páginas dos pontos custam ~200 MB cada: só existem com a janela na tela.
+    close_chats(app, &chats);
     if let Some(window) = app.get_window(&window_label(id)) {
         let (x, y) = parked_position(app);
         let _ = window.set_decorations(false);
@@ -586,6 +636,156 @@ pub fn snapshot(app: &AppHandle, id: Uuid) -> Vec<(Option<Site>, Option<String>,
         .unwrap_or_default()
 }
 
+/// Quantas páginas de pontos estão abertas na conta (autoteste).
+pub fn chat_labels(app: &AppHandle, id: Uuid) -> Vec<String> {
+    app.state::<Lives>().windows.lock().unwrap().get(&id).map(|w| w.chats.iter().map(|c| c.label.clone()).collect()).unwrap_or_default()
+}
+
+// ---------- Pontos na mão ----------
+
+const KICK_DESKTOP_WIDTH: f64 = 1100.0;
+/// A página dos pontos não precisa do vídeo: os pontos vêm do player da live, que continua tocando.
+const PAUSE_JS: &str = "addEventListener('play', (e) => { if (e.target instanceof HTMLMediaElement) { e.target.muted = true; e.target.pause(); } }, true);";
+const CHAT_COLUMN: f64 = 420.0;
+const KICK_POINTS_CSS: &str = "#chatroom-messages, [data-testid=\"pinned-message-modal\"], [aria-label=\"Expand leaderboard\"] { visibility: hidden !important; }";
+const TWITCH_POINTS_CSS: &str = ".chat-scrollable-area__message-container, .pinned-chat__message { visibility: hidden !important; }";
+
+fn chat_url(site: Site, channel: &str) -> String {
+    match site {
+        Site::Kick => format!("https://kick.com/{channel}"),
+        Site::Twitch => format!("https://www.twitch.tv/popout/{channel}/chat?popout="),
+    }
+}
+
+fn chat_css(site: Site, full_page: bool) -> &'static str {
+    match (site, full_page) {
+        (_, true) => "",
+        (Site::Kick, false) => KICK_POINTS_CSS,
+        (Site::Twitch, false) => TWITCH_POINTS_CSS,
+    }
+}
+
+fn chat_script(css: &str) -> String {
+    format!(
+        "let s = document.getElementById('deck-chat'); if (!s) {{ s = document.createElement('style'); s.id = 'deck-chat'; (document.head || document.documentElement).appendChild(s); }} s.textContent = {}; return 1;",
+        serde_json::to_string(css).unwrap_or_default()
+    )
+}
+
+fn close_chats(app: &AppHandle, chats: &[Chat]) {
+    for chat in chats {
+        if let Some(webview) = app.get_webview(&chat.label) {
+            webkit::close_page(&webview);
+            let _ = webview.close();
+        }
+    }
+}
+
+/// Liga ou desliga o modo "Pontos" na janela da conta (na tela). Main thread.
+pub fn set_points(app: &AppHandle, id: Uuid, on: bool) {
+    if on {
+        reveal(app, id, 0);
+    }
+    let (old, lives_open) = {
+        let lives = app.state::<Lives>();
+        let mut windows = lives.windows.lock().unwrap();
+        let Some(state) = windows.get_mut(&id) else { return };
+        state.points = on;
+        let open: Vec<(Site, String)> = state
+            .slots
+            .iter()
+            .filter_map(|s| Some((s.site?, s.channel.clone()?)))
+            .collect();
+        (std::mem::take(&mut state.chats), open)
+    };
+    close_chats(app, &old);
+    let mut chats = Vec::new();
+    if on {
+        let Some(window) = app.get_window(&window_label(id)) else { return };
+        let mtm = MainThreadMarker::new().expect("pontos abertos fora da main thread");
+        for (index, (site, channel)) in lives_open.iter().enumerate() {
+            let label = format!("chat-{}-{index}", id.simple());
+            let config = webkit::configuration(mtm, Some(id), false, true);
+            webkit::add_block_list(&config);
+            let site = *site;
+            let url: tauri::Url = match chat_url(site, channel).parse() {
+                Ok(url) => url,
+                Err(_) => continue,
+            };
+            let builder = WebviewBuilder::new(&label, WebviewUrl::External(url))
+                .with_webview_configuration(config)
+                .user_agent(USER_AGENT)
+                .initialization_script(PAUSE_JS)
+                .on_page_load(move |webview, payload| {
+                    if matches!(payload.event(), PageLoadEvent::Finished) {
+                        let app = webview.app_handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            let full = app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| w.full_page);
+                            let _ = webkit::call_async(&webview, &chat_script(chat_css(site, full)), Duration::from_secs(10)).await;
+                        });
+                    }
+                });
+            if let Ok(webview) = window.add_child(builder, LogicalPosition::new(0.0, TAB_BAR), LogicalSize::new(CHAT_COLUMN, 400.0)) {
+                webkit::set_page_muted(&webview, true);
+                chats.push(Chat { label, site });
+            }
+        }
+        let height = app.state::<Deck>().read(|c| c.lives.points_height);
+        let columns = chats.len().max(2) as f64;
+        let _ = window.set_size(LogicalSize::new(columns * CHAT_COLUMN, height));
+    }
+    if let Some(state) = app.state::<Lives>().windows.lock().unwrap().get_mut(&id) {
+        state.chats = chats;
+    }
+    layout(app, id);
+}
+
+/// "Página inteira": tira o corte das páginas dos pontos, se algo do chat ficar escondido.
+fn set_full_page(app: &AppHandle, id: Uuid, full: bool) {
+    let chats = {
+        let lives = app.state::<Lives>();
+        let mut windows = lives.windows.lock().unwrap();
+        let Some(state) = windows.get_mut(&id) else { return };
+        state.full_page = full;
+        state.chats.clone()
+    };
+    for chat in chats {
+        if let Some(webview) = app.get_webview(&chat.label) {
+            let script = chat_script(chat_css(chat.site, full));
+            tauri::async_runtime::spawn(async move {
+                let _ = webkit::call_async(&webview, &script, Duration::from_secs(10)).await;
+            });
+        }
+    }
+    layout(app, id);
+}
+
+/// A altura da janela no modo "Pontos" fica guardada (vale para todas as contas).
+fn remember_points_height(app: &AppHandle, id: Uuid) {
+    let points = app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| w.points && w.revealed);
+    if !points {
+        return;
+    }
+    let Some(window) = app.get_window(&window_label(id)) else { return };
+    let (Ok(scale), Ok(size)) = (window.scale_factor(), window.outer_size()) else { return };
+    let height = size.to_logical::<f64>(scale).height.clamp(300.0, 3000.0);
+    app.state::<Deck>().update(|c| c.lives.points_height = height);
+}
+
+#[tauri::command]
+pub fn lives_ui_points(app: AppHandle, webview: tauri::Webview) {
+    let Some(id) = account_of_window(webview.label()) else { return };
+    let on = !app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| w.points);
+    set_points(&app, id, on);
+}
+
+#[tauri::command]
+pub fn lives_ui_full_page(app: AppHandle, webview: tauri::Webview) {
+    let Some(id) = account_of_window(webview.label()) else { return };
+    let full = !app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| w.full_page);
+    set_full_page(&app, id, full);
+}
+
 // ---------- Fechar e abrir lives numa conta ----------
 
 pub fn close_live(app: &AppHandle, id: Uuid, site: Site, channel: Option<String>) {
@@ -806,6 +1006,9 @@ pub struct UiState {
     tabs: Vec<UiTab>,
     revealed: bool,
     summary: String,
+    points: bool,
+    full_page: bool,
+    can_points: bool,
 }
 
 fn ui_state(app: &AppHandle, id: Uuid) -> Option<UiState> {
@@ -828,7 +1031,16 @@ fn ui_state(app: &AppHandle, id: Uuid) -> Option<UiState> {
             selected: index == state.selected,
         })
         .collect();
-    Some(UiState { name, tabs, revealed: state.revealed, summary })
+    let can_points = state.slots.iter().any(|s| s.site.is_some() && s.channel.is_some());
+    Some(UiState {
+        name,
+        tabs,
+        revealed: state.revealed,
+        summary,
+        points: state.points,
+        full_page: state.full_page,
+        can_points,
+    })
 }
 
 #[tauri::command]
@@ -840,6 +1052,9 @@ pub fn lives_ui_state(app: AppHandle, webview: tauri::Webview) -> Option<UiState
 #[tauri::command]
 pub fn lives_ui_select(app: AppHandle, webview: tauri::Webview, index: usize) {
     let Some(id) = account_of_window(webview.label()) else { return };
+    if app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| w.points) {
+        set_points(&app, id, false);
+    }
     if let Some(state) = app.state::<Lives>().windows.lock().unwrap().get_mut(&id) {
         if let Some((slot, _)) = state.slots.iter().enumerate().filter(|(_, s)| s.url.is_some()).nth(index) {
             state.selected = slot;

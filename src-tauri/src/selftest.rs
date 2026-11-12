@@ -511,6 +511,7 @@ async fn automations(app: &AppHandle, report: &mut Report) {
 async fn lives_phase(app: &AppHandle, report: &mut Report) {
     use crate::{config::Site, lives};
     let id = app.state::<deck::Deck>().accounts()[0].id;
+    crate::webkit::compile_block_list(app).await;
     on_main(app, |app| lives::start(app)).await;
     let mut kick = None;
     for _ in 0..40 {
@@ -553,6 +554,12 @@ async fn lives_phase(app: &AppHandle, report: &mut Report) {
             format!("o script dos pontos da Kick roda no player e responde ({answer:?})"),
         );
     }
+    if let Some((label, _)) = lives::live_pages(app, id, Site::Kick).into_iter().next() {
+        if let Some(webview) = app.get_webview(&label) {
+            let ad = webkit::call_async(&webview, "try { await fetch('https://pagead2.googlesyndication.com/deck-teste', { mode: 'no-cors' }); return 'passou'; } catch (e) { return 'bloqueado'; }", Duration::from_secs(15)).await;
+            report.check(ad.as_deref() == Ok("\"bloqueado\""), format!("anúncios bloqueados nas lives ({ad:?})"));
+        }
+    }
     act(app, "lives:show".into()).await;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let number = on_main(app, move |app| {
@@ -565,7 +572,21 @@ async fn lives_phase(app: &AppHandle, report: &mut Report) {
         let shot = deck::data_dir(app).join("lives.png");
         let _ = std::process::Command::new("screencapture").args(["-x", "-o", "-l", &number.to_string()]).arg(&shot).status();
     }
+    act(app, format!("lives:points:{id}")).await;
+    tokio::time::sleep(Duration::from_secs(12)).await;
+    let chats = lives::chat_labels(app, id);
+    let open = lives::snapshot(app, id).iter().filter(|s| s.0.is_some() && s.1.is_some()).count();
+    report.check(!chats.is_empty() && chats.len() == open, format!("modo Pontos abre a página de cada live ({} de {open})", chats.len()));
+    if let Some(webview) = chats.first().and_then(|l| app.get_webview(l)) {
+        let cut = webkit::call_async(&webview, "const c = document.querySelector('#chatroom-messages'); return c ? getComputedStyle(c).visibility : 'sem chat';", Duration::from_secs(10)).await;
+        report.check(cut.as_deref() == Ok("\"hidden\""), format!("as mensagens do chat da Kick ficam escondidas ({cut:?})"));
+    }
+    if let Some(number) = number {
+        let shot = deck::data_dir(app).join("pontos.png");
+        let _ = std::process::Command::new("screencapture").args(["-x", "-o", "-l", &number.to_string()]).arg(&shot).status();
+    }
     on_main(app, move |app| lives::park(app, id)).await;
+    report.check(lives::chat_labels(app, id).is_empty(), "esconder a janela fecha as páginas dos pontos");
 
     if let Some(channel) = kick.clone() {
         let close = format!("lives:close:{id}:kick:{channel}");

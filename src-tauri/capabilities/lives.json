@@ -11,6 +11,8 @@
     "allow-lives-ui-state",
     "allow-lives-ui-select",
     "allow-lives-ui-park",
+    "allow-lives-ui-points",
+    "allow-lives-ui-full-page",
     "allow-lives-config-get",
     "allow-lives-config-set",
     "core:window:allow-close"

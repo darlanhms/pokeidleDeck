@@ -11,6 +11,8 @@ fn main() {
         "lives_ui_state",
         "lives_ui_select",
         "lives_ui_park",
+        "lives_ui_points",
+        "lives_ui_full_page",
         "lives_config_get",
         "lives_config_set",
         "registro_get",

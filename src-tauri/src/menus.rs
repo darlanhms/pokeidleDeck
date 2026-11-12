@@ -384,6 +384,7 @@ fn lives_action(app: &AppHandle, verb: &str, rest: &str) {
         ("close", Some(id), Some(site)) => lives::close_live(app, id, site, channel),
         ("reopen", Some(id), Some(site)) => lives::reopen_live(app, id, site, channel),
         ("show", _, _) => lives::reveal_all(app),
+        ("points", Some(id), _) => lives::set_points(app, id, true),
         ("config", _, _) => crate::lives_config::open(app),
         ("log", _, _) => crate::points::open_log_window(app),
         _ => {}
@@ -414,6 +415,9 @@ pub fn lives_menu(app: AppHandle, window: Window, x: f64, y: f64) -> Result<(), 
         }
         menu.append(&PredefinedMenuItem::separator(&app)?)?;
         let any = accounts.iter().any(|a| lives::has_window(&app, a.id));
+        for account in accounts.iter().filter(|a| lives::has_window(&app, a.id)) {
+            menu.append(&item(&app, format!("lives:points:{}", account.id), &format!("Resgatar pontos na mão: {}", account.name), true, None)?)?;
+        }
         menu.append(&item(&app, "lives:show", "Mostrar as lives (para entrar na Twitch/Kick ou ver os players)", any, None)?)?;
         let today = crate::points::today_count(&app);
         menu.append(&item(&app, "lives:log", &format!("Registro dos resgates… ({today} hoje)"), true, None)?)?;

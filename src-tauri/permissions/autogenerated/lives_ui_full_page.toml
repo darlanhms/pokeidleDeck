@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-lives-ui-full-page"
+description = "Enables the lives_ui_full_page command without any pre-configured scope."
+commands.allow = ["lives_ui_full_page"]
+
+[[permission]]
+identifier = "deny-lives-ui-full-page"
+description = "Denies the lives_ui_full_page command without any pre-configured scope."
+commands.deny = ["lives_ui_full_page"]

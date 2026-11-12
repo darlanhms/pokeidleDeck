@@ -39,6 +39,8 @@ pub fn run() {
             lives::lives_ui_state,
             lives::lives_ui_select,
             lives::lives_ui_park,
+            lives::lives_ui_points,
+            lives::lives_ui_full_page,
             lives_config::lives_config_get,
             lives_config::lives_config_set,
             points::registro_get,
@@ -59,8 +61,15 @@ pub fn run() {
             deck::setup(handle)?;
             memory::start(handle);
             if std::env::var_os("DECK_SELFTEST").is_none() {
-                lives::start(handle);
-                points::start(handle);
+                let handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    webkit::compile_block_list(&handle).await;
+                    let app = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        lives::start(&app);
+                        points::start(&app);
+                    });
+                });
             }
             match std::env::var("DECK_SELFTEST") {
                 Ok(phase) => selftest::start(handle.clone(), phase),
