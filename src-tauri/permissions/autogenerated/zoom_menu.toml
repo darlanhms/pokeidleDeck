@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-zoom-menu"
+description = "Enables the zoom_menu command without any pre-configured scope."
+commands.allow = ["zoom_menu"]
+
+[[permission]]
+identifier = "deny-zoom-menu"
+description = "Denies the zoom_menu command without any pre-configured scope."
+commands.deny = ["zoom_menu"]

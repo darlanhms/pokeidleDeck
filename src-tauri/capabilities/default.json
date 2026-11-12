@@ -6,8 +6,11 @@
   "permissions": [
     "core:default",
     "allow-deck-state",
+    "allow-deck-action",
     "allow-deck-menu",
+    "allow-zoom-menu",
     "allow-account-menu",
+    "allow-page-key",
     "allow-account-eval",
     "allow-kick-status"
   ]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-prompt-info"
+description = "Enables the prompt_info command without any pre-configured scope."
+commands.allow = ["prompt_info"]
+
+[[permission]]
+identifier = "deny-prompt-info"
+description = "Denies the prompt_info command without any pre-configured scope."
+commands.deny = ["prompt_info"]

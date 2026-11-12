@@ -9,12 +9,23 @@
   </head>
   <body>
     <header id="top">
-      <strong>PokeIdle Deck</strong>
-      <button id="accounts" type="button">Contas ▾</button>
-      <button id="promise" type="button" title="Roda um JS que devolve uma Promise em cada conta">Testar Promise</button>
-      <span id="message"></span>
+      <strong class="brand">PokeIdle Deck</strong>
+      <div class="segmented" id="layouts">
+        <button type="button" data-layout="grid" title="As contas em grade">Grade</button>
+        <button type="button" data-layout="columns" title="As contas lado a lado">Colunas</button>
+        <button type="button" data-layout="focus" title="Uma conta ocupando o deck (as outras continuam rodando escondidas)">Ampliada</button>
+      </div>
+      <div id="account-buttons"></div>
+      <button type="button" id="accounts-menu">Contas ▾</button>
+      <span class="spacer"></span>
+      <div class="segmented" id="zoom">
+        <button type="button" id="zoom-out" title="Diminuir o zoom de todas as contas">−</button>
+        <button type="button" id="zoom-menu" title="Zoom de todas as contas">Zoom 100%</button>
+        <button type="button" id="zoom-in" title="Aumentar o zoom de todas as contas">+</button>
+      </div>
+      <button type="button" id="fullscreen" title="Tela cheia (F11)">⛶</button>
     </header>
     <div id="panes"></div>
-    <footer id="bottom"><span id="kick">Kick: desligado</span></footer>
+    <footer id="bottom"><span id="summary"></span><span class="spacer"></span><span id="kick"></span></footer>
   </body>
 </html>

@@ -107,7 +107,7 @@ fn webview_label(variant: &Variant) -> String {
 }
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
-    if std::env::var("DECK_KICK").as_deref() == Ok("0") {
+    if std::env::var("DECK_KICK_SPIKE").as_deref() != Ok("1") {
         return Ok(());
     }
     let channel = std::env::var("DECK_KICK_CHANNEL").unwrap_or_else(|_| "gaules".into());
@@ -123,13 +123,13 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 
     for (index, variant) in VARIANTS.iter().enumerate() {
         let label = webview_label(variant);
-        let config = webkit::configuration(mtm, None, true);
+        let config = webkit::configuration(mtm, None, true, true);
         match variant.host {
             Host::VisibleWindow | Host::OffscreenWindow => {
                 let x = if variant.host == Host::VisibleWindow { 60.0 } else { right_edge + 100.0 + index as f64 * 520.0 };
                 let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url.clone()))
                     .with_webview_configuration(config)
-                    .user_agent(deck::USER_AGENT)
+                    .user_agent(crate::accounts::USER_AGENT)
                     .background_throttling(BackgroundThrottlingPolicy::Disabled)
                     .initialization_script(VISIBLE_JS)
                     .initialization_script(MUTE_JS)
@@ -147,7 +147,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
                 let webview = main.add_child(
                     WebviewBuilder::new(&label, WebviewUrl::External(url.clone()))
                         .with_webview_configuration(config)
-                        .user_agent(deck::USER_AGENT)
+                        .user_agent(crate::accounts::USER_AGENT)
                         .background_throttling(BackgroundThrottlingPolicy::Disabled)
                         .initialization_script(VISIBLE_JS)
                     .initialization_script(MUTE_JS),

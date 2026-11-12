@@ -1,3 +1,4 @@
+use crate::config::LayoutMode;
 use serde::Serialize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -41,6 +42,26 @@ pub fn grid(n: usize, area: Rect, stacked: bool, gap: f64) -> Vec<Rect> {
     }
 }
 
+/// N colunas iguais, lado a lado.
+pub fn columns(n: usize, area: Rect, gap: f64) -> Vec<Rect> {
+    if n == 0 {
+        return vec![];
+    }
+    let w = ((area.w - gap * (n as f64 - 1.0)) / n as f64).max(0.0);
+    (0..n)
+        .map(|i| Rect { x: area.x + i as f64 * (w + gap), y: area.y, w, h: area.h })
+        .collect()
+}
+
+/// Onde fica cada conta; `None` é conta escondida (as não ampliadas, no modo ampliada).
+pub fn arrange(mode: LayoutMode, n: usize, focused: Option<usize>, area: Rect, stacked: bool, gap: f64) -> Vec<Option<Rect>> {
+    match (mode, focused) {
+        (LayoutMode::Focus, Some(index)) => (0..n).map(|i| (i == index).then_some(area)).collect(),
+        (LayoutMode::Columns, _) => columns(n, area, gap).into_iter().map(Some).collect(),
+        _ => grid(n, area, stacked, gap).into_iter().map(Some).collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,6 +92,20 @@ mod tests {
         let r = grid(3, AREA, false, 0.0);
         assert_eq!(r[2].w, AREA.w);
         assert_eq!(covered(&r, 0.0), AREA.w * AREA.h);
+    }
+
+    #[test]
+    fn columns_split_the_width() {
+        let r = columns(3, AREA, 0.0);
+        assert_eq!(r.len(), 3);
+        assert!((r[2].x + r[2].w - AREA.w).abs() < 1e-9);
+        assert!(r.iter().all(|c| c.h == AREA.h));
+    }
+
+    #[test]
+    fn focus_shows_only_one() {
+        let r = arrange(LayoutMode::Focus, 3, Some(1), AREA, false, 4.0);
+        assert_eq!(r, vec![None, Some(AREA), None]);
     }
 
     #[test]

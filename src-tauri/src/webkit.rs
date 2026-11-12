@@ -44,6 +44,7 @@ pub fn configuration(
     mtm: MainThreadMarker,
     store: Option<Uuid>,
     autoplay: bool,
+    keep_running_hidden: bool,
 ) -> Retained<WKWebViewConfiguration> {
     unsafe {
         let config = WKWebViewConfiguration::new(mtm);
@@ -54,6 +55,8 @@ pub fn configuration(
         config.setWebsiteDataStore(&data_store);
         if autoplay {
             config.setMediaTypesRequiringUserActionForPlayback(WKAudiovisualMediaTypes::None);
+        }
+        if keep_running_hidden {
             keep_running_when_hidden(&config);
         }
         config
@@ -61,7 +64,8 @@ pub fn configuration(
 }
 
 /// Página oculta (fora da tela ou coberta) tem o processo suprimido e os timers estrangulados pelo
-/// WebKit, o que mata o player depois de alguns minutos. Preferências privadas do WKPreferences.
+/// WebKit, o que mata o player da Kick em poucos minutos e deixaria as contas escondidas (modo
+/// ampliada) mais lentas. Preferências privadas do WKPreferences.
 unsafe fn keep_running_when_hidden(config: &WKWebViewConfiguration) {
     let preferences = unsafe { config.preferences() };
     let object: &AnyObject = &preferences;
@@ -78,7 +82,9 @@ unsafe fn keep_running_when_hidden(config: &WKWebViewConfiguration) {
         if c {
             let _: () = msg_send![object, _setHiddenPageDOMTimerThrottlingAutoIncreases: Bool::NO];
         }
-        println!("[webkit] WKPreferences privadas: supressão={a} throttling={b} auto={c}");
+        if !(a && b && c) {
+            eprintln!("[webkit] WKPreferences privadas ausentes: supressão={a} throttling={b} auto={c}");
+        }
     }
 }
 
@@ -222,7 +228,9 @@ pub fn disable_occlusion_detection(webview: &Webview) {
         if available {
             let _: () = msg_send![webview, _setWindowOcclusionDetectionEnabled: Bool::NO];
         }
-        println!("[webkit] _setWindowOcclusionDetectionEnabled: disponível={available}");
+        if !available {
+            eprintln!("[webkit] _setWindowOcclusionDetectionEnabled ausente");
+        }
     });
 }
 

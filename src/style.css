@@ -1,12 +1,16 @@
 :root {
   --back: #16181d;
   --bar: #1f2229;
+  --button: #2a2e37;
+  --button-hover: #343945;
+  --active: #3d5a99;
   --border: #2c3039;
   --text: #e6e8ec;
   --muted: #8a909c;
   --ok: #4cc38a;
   --warn: #e5b440;
   --bad: #e5484d;
+  --accent: #f0a63a;
   font: 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   color: var(--text);
   background: var(--back);
@@ -23,6 +27,35 @@ body {
   background: var(--back);
   user-select: none;
   -webkit-user-select: none;
+  cursor: default;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--button);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  background: var(--button-hover);
+}
+
+button:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+button.active {
+  background: var(--active);
+  border-color: var(--active);
+}
+
+.spacer {
+  flex: 1;
 }
 
 #top,
@@ -32,9 +65,10 @@ body {
   right: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 0 10px;
   background: var(--bar);
+  overflow: hidden;
 }
 
 #top {
@@ -49,32 +83,53 @@ body {
   font-size: 12px;
 }
 
-button {
-  font: inherit;
-  color: var(--text);
-  background: #2a2e37;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 3px 10px;
+.brand {
+  color: var(--accent);
+  margin-right: 4px;
 }
 
-button:hover {
-  background: #343945;
+.segmented {
+  display: flex;
 }
 
-#message {
-  color: var(--muted);
-  white-space: nowrap;
+.segmented button {
+  border-radius: 0;
+  margin-left: -1px;
+}
+
+.segmented button:first-child {
+  border-radius: 5px 0 0 5px;
+  margin-left: 0;
+}
+
+.segmented button:last-child {
+  border-radius: 0 5px 5px 0;
+}
+
+#account-buttons {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+#account-buttons button {
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+#account-buttons button.off {
+  color: var(--muted);
+  text-decoration: line-through;
 }
 
 .pane-header {
   position: absolute;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px;
+  gap: 6px;
+  padding: 0 4px 0 8px;
   background: var(--bar);
   border: 1px solid var(--border);
   border-bottom: none;
@@ -84,31 +139,112 @@ button:hover {
 
 .pane-header .dot {
   color: var(--muted);
+  font-size: 10px;
 }
 
-.pane-header .dot.ok {
+.dot.ok {
   color: var(--ok);
 }
 
-.pane-header .dot.login {
+.dot.loading,
+.dot.login {
   color: var(--warn);
+}
+
+.pane-header .name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 30px;
 }
 
 .pane-header .info {
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
-.pane-header .more {
-  margin-left: auto;
-  padding: 0 8px;
+.pane-header .info.warn {
+  color: var(--warn);
 }
 
-.player.playing {
-  color: var(--ok);
+.pane-header button {
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 20px;
 }
 
-.player.stopped {
-  color: var(--bad);
+.pane-header button:hover {
+  background: var(--button-hover);
+}
+
+.pane-header button.power.off {
+  color: var(--accent);
+}
+
+.off-note {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.off-note strong {
+  color: var(--text);
+}
+
+/* Janelinha do nome. */
+body.prompt {
+  height: auto;
+  background: var(--bar);
+}
+
+body.prompt form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+body.prompt label {
+  color: var(--muted);
+}
+
+body.prompt input {
+  font: inherit;
+  color: var(--text);
+  background: var(--back);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+body.prompt input:focus {
+  border-color: var(--active);
+}
+
+body.prompt .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+button.primary {
+  background: var(--active);
+  border-color: var(--active);
 }

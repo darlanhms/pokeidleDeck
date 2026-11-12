@@ -1,5 +1,5 @@
-//! Autoteste do isolamento das contas (`DECK_SELFTEST=1`, depois `DECK_SELFTEST=2` com o mesmo
-//! `DECK_DATA_DIR`). Marca cada conta com um cookie e um item de localStorage no pokeidle.io e confere
+//! Autotestes. `DECK_SELFTEST=1`, depois `2` com o mesmo `DECK_DATA_DIR`: isolamento das contas.
+//! `shell`: layouts, ampliar, zoom, desligar, renomear, reordenar, remover e restaurar. Marca cada conta com um cookie e um item de localStorage no pokeidle.io e confere
 //! quem enxerga o quê, antes e depois de reabrir o app.
 
 use crate::{config::DeckConfig, deck, webkit};
@@ -37,6 +37,7 @@ pub fn start(app: AppHandle, phase: String) {
             "1" => phase_one(&app, &mut report).await,
             "2" => phase_two(&app, &mut report).await,
             "menu" => return menu_over_webviews(&app).await,
+            "shell" => shell(&app, &mut report).await,
             other => report.check(false, format!("fase desconhecida: {other}")),
         }
         let path = deck::data_dir(&app).join(format!("selftest-{phase}.txt"));
@@ -61,7 +62,7 @@ async fn on_main<T: Send + 'static>(
 
 async fn eval(app: &AppHandle, id: Uuid, script: &str) -> Result<serde_json::Value, String> {
     let webview = app
-        .get_webview(&deck::label(&id))
+        .get_webview(&crate::accounts::label(&id))
         .ok_or_else(|| "webview não existe".to_owned())?;
     let json = webkit::call_async(&webview, script, Duration::from_secs(20)).await?;
     serde_json::from_str(&json).map_err(|e| e.to_string())
@@ -104,12 +105,12 @@ async fn store_exists(app: &AppHandle, id: Uuid) -> bool {
 }
 
 fn panes_fill_without_holes(app: &AppHandle, report: &mut Report, expected: usize) {
-    let layout = deck::current_layout(app).map(|l| serde_json::to_value(l).unwrap());
+    let layout = deck::view(app).map(|l| serde_json::to_value(l).unwrap());
     let panes = layout
         .as_ref()
         .and_then(|l| l["panes"].as_array().cloned())
         .unwrap_or_default();
-    let full_width = panes.last().map(|p| p["w"].as_f64()).flatten();
+    let full_width = panes.last().map(|p| p["rect"]["w"].as_f64()).flatten();
     let window_width = app
         .get_window("main")
         .and_then(|w| Some(w.inner_size().ok()?.to_logical::<f64>(w.scale_factor().ok()?).width));
@@ -120,7 +121,7 @@ fn panes_fill_without_holes(app: &AppHandle, report: &mut Report, expected: usiz
 
 async fn phase_one(app: &AppHandle, report: &mut Report) {
     let first = app.state::<deck::Deck>().accounts()[0].id;
-    let second = on_main(app, |app| deck::add_account(app).map(|a| a.id)).await;
+    let second = on_main(app, |app| crate::accounts::add(app)).await;
     let Some(second) = second else {
         return report.check(false, "não criou a 2ª conta");
     };
@@ -128,7 +129,7 @@ async fn phase_one(app: &AppHandle, report: &mut Report) {
     mark(app, report, first).await;
     mark(app, report, second).await;
 
-    let third = on_main(app, |app| deck::add_account(app).map(|a| a.id)).await;
+    let third = on_main(app, |app| crate::accounts::add(app)).await;
     let Some(third) = third else {
         return report.check(false, "não criou a 3ª conta");
     };
@@ -149,7 +150,7 @@ async fn phase_one(app: &AppHandle, report: &mut Report) {
         report.check(ok, format!("{id} reporta pelo IPC a cada segundo ({last:?})"));
     }
 
-    on_main(app, move |app| deck::remove_account(app, second, true)).await;
+    on_main(app, move |app| crate::accounts::remove(app, second, true)).await;
     panes_fill_without_holes(app, report, 2);
     tokio::time::sleep(Duration::from_secs(3)).await;
     let records = webkit::data_records(app, second).await;
@@ -158,7 +159,7 @@ async fn phase_one(app: &AppHandle, report: &mut Report) {
     report.check(store_exists(app, first).await && store_exists(app, third).await, "data stores das outras continuam");
     for id in [first, third] {
         on_main(app, move |app| {
-            if let Some(webview) = app.get_webview(&deck::label(&id)) {
+            if let Some(webview) = app.get_webview(&crate::accounts::label(&id)) {
                 let _ = webview.reload();
             }
         })
@@ -187,21 +188,29 @@ async fn phase_two(app: &AppHandle, report: &mut Report) {
         report.check(!store_exists(app, removed).await, format!("data store da removida {removed} apagado do disco no início"));
     }
     for &id in &ids {
-        on_main(app, move |app| deck::remove_account(app, id, true)).await;
+        on_main(app, move |app| crate::accounts::remove(app, id, true)).await;
     }
     tokio::time::sleep(Duration::from_secs(3)).await;
-    for &id in &ids {
-        let records = webkit::data_records(app, id).await;
-        report.check(records.as_ref().is_ok_and(|r| r.iter().all(|r| is_cache_only(r))), format!("limpeza: {id} sem login/cookies ({records:?})"));
-    }
+    let records = webkit::data_records(app, ids[0]).await;
+    report.check(
+        records.as_ref().is_ok_and(|r| r.iter().all(|r| is_cache_only(r))),
+        format!("limpeza: {} sem login/cookies ({records:?})", ids[0]),
+    );
+    let left = app.state::<deck::Deck>().accounts();
+    report.check(left.len() == 1 && left[0].id == ids[1], "a última conta fica no deck");
 }
 
 /// Fotografa só a janela do deck (`screencapture -l`, nunca a tela inteira) para conferir os
 /// cabeçalhos. O menu nativo é outra janela, acima de todas as do app, e não sai nessa foto.
 async fn menu_over_webviews(app: &AppHandle) {
     let first = app.state::<deck::Deck>().accounts()[0].id;
+    act(app, "deck:add".into()).await;
+    act(app, "deck:add".into()).await;
+    let third = view(app).panes[2].id;
+    act(app, format!("acc:power:{third}")).await;
+    on_main(app, move |app| crate::accounts::rename(app, first, "Main")).await;
     let _ = wait_loaded(app, first).await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
     let shot = deck::data_dir(app).join("deck.png");
     let window_number = on_main(app, |app| {
         let window = app.get_window("main")?;
@@ -220,4 +229,114 @@ async fn menu_over_webviews(app: &AppHandle) {
         println!("[selftest] janela {number} em {} ({status:?})", shot.display());
     }
     app.exit(0);
+}
+
+/// O que a WKWebView da conta está fazendo de verdade: escondida, zoom aplicado e endereço.
+async fn native(app: &AppHandle, id: Uuid) -> Option<(bool, f64, String)> {
+    let webview = app.get_webview(&crate::accounts::label(&id))?;
+    let url = webview.url().map(|u| u.to_string()).unwrap_or_default();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    webview
+        .with_webview(move |platform| unsafe {
+            let view = &*(platform.inner() as *const objc2_web_kit::WKWebView);
+            let _ = tx.send((view.isHidden(), view.pageZoom()));
+        })
+        .ok()?;
+    let (hidden, zoom) = rx.await.ok()?;
+    Some((hidden, zoom as f64, url))
+}
+
+async fn act(app: &AppHandle, action: String) {
+    on_main(app, move |app| crate::menus::dispatch(app, &action)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+}
+
+fn view(app: &AppHandle) -> deck::DeckView {
+    deck::view(app).expect("deck sem janela")
+}
+
+async fn shell(app: &AppHandle, report: &mut Report) {
+    let v = view(app);
+    report.check(
+        v.panes.len() == 1 && v.panes[0].rect.is_some_and(|r| (r.w - v.width).abs() < 1.0),
+        "começa com 1 conta ocupando a largura toda",
+    );
+    let first = v.panes[0].id;
+    for _ in 0..3 {
+        act(app, "deck:add".into()).await;
+    }
+    let v = view(app);
+    report.check(v.panes.len() == 4 && !v.can_add, format!("4 contas e \"+ Nova conta\" desabilitado ({})", v.panes.len()));
+    act(app, "deck:add".into()).await;
+    report.check(view(app).panes.len() == 4, "não passa de 4");
+    let ids: Vec<Uuid> = view(app).panes.iter().map(|p| p.id).collect();
+
+    act(app, "deck:layout:columns".into()).await;
+    let widths: Vec<f64> = view(app).panes.iter().filter_map(|p| p.rect.map(|r| r.w)).collect();
+    report.check(
+        widths.len() == 4 && widths.iter().all(|w| (w - widths[0]).abs() < 0.5),
+        format!("colunas: 4 larguras iguais ({widths:?})"),
+    );
+
+    act(app, "deck:zoom:set:0.5".into()).await;
+    let zoom = native(app, ids[1]).await.map(|n| n.1);
+    report.check(zoom.is_some_and(|z| (z - 0.5).abs() < 0.01), format!("zoom 50% aplicado nas webviews ({zoom:?})"));
+
+    act(app, format!("acc:focus:{}", ids[1])).await;
+    let v = view(app);
+    let shown: Vec<usize> = v.panes.iter().enumerate().filter(|(_, p)| p.rect.is_some()).map(|(i, _)| i).collect();
+    let others_hidden = native(app, ids[0]).await.is_some_and(|n| n.0) && native(app, ids[2]).await.is_some_and(|n| n.0);
+    let zoom = native(app, ids[1]).await.map(|n| n.1);
+    report.check(
+        shown == vec![1] && others_hidden && zoom.is_some_and(|z| (z - 1.0).abs() < 0.01),
+        format!("ampliada: só a 2ª aparece, as outras escondidas, zoom 100% ({shown:?}, {zoom:?})"),
+    );
+    let alive = eval(app, ids[0], "return document.readyState").await;
+    report.check(alive.is_ok(), format!("conta escondida continua respondendo ({alive:?})"));
+    act(app, format!("acc:focus:{}", ids[1])).await;
+    let v = view(app);
+    let zoom = native(app, ids[1]).await.map(|n| n.1);
+    report.check(
+        v.layout == crate::config::LayoutMode::Columns && zoom.is_some_and(|z| (z - 0.5).abs() < 0.01),
+        format!("voltar: colunas de novo e zoom 50% ({:?}, {zoom:?})", v.layout),
+    );
+
+    act(app, format!("acc:power:{}", ids[2])).await;
+    let n = native(app, ids[2]).await;
+    let pane = view(app).panes.into_iter().find(|p| p.id == ids[2]);
+    report.check(
+        n.as_ref().is_some_and(|n| n.0 && n.2.starts_with("about:blank")) && pane.is_some_and(|p| p.off && p.rect.is_some()),
+        format!("desligar: fica no deck, página em branco e escondida ({n:?})"),
+    );
+    act(app, format!("acc:power:{}", ids[2])).await;
+    let loaded = wait_loaded(app, ids[2]).await;
+    let hidden = native(app, ids[2]).await.map(|n| n.0);
+    report.check(loaded && hidden == Some(false), format!("ligar de novo: o jogo volta ({hidden:?})"));
+
+    on_main(app, move |app| crate::accounts::rename(app, first, "  Main  ")).await;
+    report.check(view(app).panes[0].name == "Main", "renomear");
+    act(app, format!("acc:right:{first}")).await;
+    let order: Vec<Uuid> = view(app).panes.iter().map(|p| p.id).collect();
+    report.check(order[1] == first && order[0] == ids[1], "mover para a direita troca com a vizinha");
+
+    let kept = ids[3];
+    let _ = wait_loaded(app, kept).await;
+    let marked = eval(app, kept, &MARK_JS.replace("ID", &format!("'{kept}'"))).await;
+    report.check(marked.is_ok(), "marca na conta que vai ser removida mantendo os dados");
+    on_main(app, move |app| crate::accounts::remove(app, kept, false)).await;
+    let v = view(app);
+    report.check(v.panes.len() == 3 && v.removed == 1 && v.can_add, "remover mantendo: sai do deck e vai para as removidas");
+    act(app, format!("deck:restore:{kept}")).await;
+    let back = view(app).panes.iter().any(|p| p.id == kept);
+    let _ = wait_loaded(app, kept).await;
+    report.check(back, "restaurar: volta com o mesmo id");
+    sees_only_itself(app, report, kept, "restaurada").await;
+
+    act(app, "deck:layout:grid".into()).await;
+    let removed: Vec<Uuid> = view(app).panes.iter().map(|p| p.id).collect();
+    for id in removed {
+        on_main(app, move |app| crate::accounts::remove(app, id, true)).await;
+    }
+    let v = view(app);
+    report.check(v.panes.len() == 1 && v.removed == 0, "a última conta não sai do deck");
 }

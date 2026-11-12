@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-deck-action"
+description = "Enables the deck_action command without any pre-configured scope."
+commands.allow = ["deck_action"]
+
+[[permission]]
+identifier = "deny-deck-action"
+description = "Denies the deck_action command without any pre-configured scope."
+commands.deny = ["deck_action"]
