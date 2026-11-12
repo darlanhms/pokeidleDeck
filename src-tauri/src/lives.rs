@@ -739,6 +739,11 @@ pub fn login(app: &AppHandle, id: Uuid, site: Site) -> Option<bool> {
 
 /// Mostra a janela de lives na aba de entrar naquele site.
 pub fn reveal_login(app: &AppHandle, id: Uuid, site: Site) {
+    #[cfg(windows)]
+    if site == Site::Twitch {
+        let name = app.state::<Deck>().accounts().into_iter().find(|a| a.id == id).map(|a| a.name).unwrap_or_default();
+        return webkit::open_login(app, id, TWITCH_LOGIN, &format!("Entrar na Twitch · {name}"));
+    }
     if let Some(state) = app.state::<Lives>().windows.lock().unwrap().get_mut(&id) {
         if let Some(index) = state.slots.iter().position(|s| s.login == Some(site) && s.url.is_some()) {
             state.selected = index;
@@ -1212,6 +1217,16 @@ pub fn lives_ui_select(app: AppHandle, webview: tauri::Webview, index: usize) {
         }
     }
     layout(&app, id);
+    // No Windows o login da Twitch só passa no WebView2 puro: a aba de entrar abre a janela dele.
+    #[cfg(windows)]
+    {
+        let twitch_login = app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| {
+            w.slots.get(w.selected).is_some_and(|s| s.login == Some(Site::Twitch))
+        });
+        if twitch_login {
+            deck::later(&app, move |app| reveal_login(app, id, Site::Twitch));
+        }
+    }
 }
 
 #[tauri::command]

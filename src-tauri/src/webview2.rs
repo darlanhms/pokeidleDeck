@@ -9,9 +9,10 @@ use tauri::{AppHandle, Manager, Runtime, Webview, WebviewBuilder};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 use webview2_com::{
-    take_pwstr, CallDevToolsProtocolMethodCompletedHandler, DevToolsProtocolEventReceivedEventHandler, GetCookiesCompletedHandler,
+    take_pwstr, CallDevToolsProtocolMethodCompletedHandler, CreateCoreWebView2ControllerCompletedHandler,
+    DevToolsProtocolEventReceivedEventHandler, GetCookiesCompletedHandler, NavigationCompletedEventHandler,
     Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, ICoreWebView2Settings2, ICoreWebView2_11,
+        ICoreWebView2, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, ICoreWebView2Controller, ICoreWebView2Settings2, ICoreWebView2_11,
         ICoreWebView2_2, ICoreWebView2_8, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
     },
     WebResourceRequestedEventHandler,
@@ -333,4 +334,88 @@ pub async fn web_process(webview: &Webview) -> Option<u32> {
         .ok()?;
     let pid = tokio::time::timeout(Duration::from_secs(2), rx).await.ok()?.ok()?;
     (pid > 0).then_some(pid)
+}
+
+// ---------- Login da Twitch num WebView2 puro ----------
+
+thread_local! {
+    /// As janelas de login abertas: a webview delas é criada direto no WebView2, sem o wry (main thread).
+    static LOGINS: std::cell::RefCell<std::collections::HashMap<String, (ICoreWebView2Controller, isize)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// O login da Twitch numa janela com um WebView2 criado direto, sem nada do Tauri na página: a checagem
+/// anti-robô da Twitch recusa a página do wry ("navegador sem suporte"), e o original, com o WebView2 puro,
+/// entra. Usa o navegador da própria conta, então o login fica salvo nela. Main thread.
+pub fn open_login(app: &AppHandle, id: Uuid, url: &str, title: &str) {
+    let label = format!("login-{}", id.simple());
+    if let Some(window) = app.get_window(&label) {
+        let _ = window.set_focus();
+        return;
+    }
+    let Some(page) = page_of(app, id) else {
+        return eprintln!("[webview2] login: nenhuma página da conta aberta");
+    };
+    let window = match tauri::WindowBuilder::new(app, &label).title(title).inner_size(560.0, 780.0).center().build() {
+        Ok(window) => window,
+        Err(err) => return eprintln!("[webview2] login: {err}"),
+    };
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd = hwnd.0 as isize;
+    let (url, key, app_done) = (url.to_owned(), label.clone(), app.clone());
+    let _ = page.with_webview(move |platform| {
+        let environment = platform.environment();
+        let handler = CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |result, controller| {
+            result?;
+            let Some(controller) = controller else { return Ok(()) };
+            fit(&controller, hwnd);
+            unsafe { controller.SetIsVisible(true)? };
+            let core = unsafe { controller.CoreWebView2()? };
+            // Entrou: a Twitch sai da página de login. A janela fecha e o deck confere o cookie na hora.
+            let (app, label) = (app_done.clone(), key.clone());
+            let done = NavigationCompletedEventHandler::create(Box::new(move |sender, _| {
+                let Some(core) = sender else { return Ok(()) };
+                let mut source = PWSTR::null();
+                unsafe { core.Source(&mut source)? };
+                let url = take_pwstr(source);
+                if url.contains("twitch.tv") && !url.contains("/login") && !url.contains("passport") {
+                    if let Some(window) = app.get_window(&label) {
+                        let _ = window.close();
+                    }
+                }
+                Ok(())
+            }));
+            let mut token = 0i64;
+            unsafe { core.add_NavigationCompleted(&done, &mut token)? };
+            unsafe { core.Navigate(&HSTRING::from(url.as_str()))? };
+            LOGINS.with(|l| l.borrow_mut().insert(key.clone(), (controller, hwnd)));
+            Ok(())
+        }));
+        if let Err(err) = unsafe { environment.CreateCoreWebView2Controller(windows::Win32::Foundation::HWND(hwnd as _), &handler) } {
+            eprintln!("[webview2] login: {}", err.message());
+        }
+    });
+    let app = app.clone();
+    window.on_window_event(move |event| match event {
+        tauri::WindowEvent::Resized(_) => LOGINS.with(|l| {
+            if let Some((controller, hwnd)) = l.borrow().get(&label) {
+                fit(controller, *hwnd);
+            }
+        }),
+        tauri::WindowEvent::Destroyed => {
+            if let Some((controller, _)) = LOGINS.with(|l| l.borrow_mut().remove(&label)) {
+                let _ = unsafe { controller.Close() };
+            }
+            crate::lives::refresh_logins(&app);
+        }
+        _ => {}
+    });
+}
+
+fn fit(controller: &ICoreWebView2Controller, hwnd: isize) {
+    use windows::Win32::{Foundation::{HWND, RECT}, UI::WindowsAndMessaging::GetClientRect};
+    let mut rect = RECT::default();
+    if unsafe { GetClientRect(HWND(hwnd as _), &mut rect) }.is_ok() {
+        let _ = unsafe { controller.SetBounds(rect) };
+    }
 }
