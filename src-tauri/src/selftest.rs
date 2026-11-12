@@ -590,6 +590,14 @@ async fn lives_phase(app: &AppHandle, report: &mut Report) {
         kick_rows.len() == 3 && kick_rows.iter().any(|r| r["state"] == "playing"),
         format!("a central lista todos os canais da Kick com o estado ({})", kick_rows.iter().map(|r| format!("{}={}", r["channel"], r["state"])).collect::<Vec<_>>().join(", ")),
     );
+    if let Some(window) = app.get_webview_window("central") {
+        let _ = webkit::call_async(window.as_ref(), "const b = document.getElementById('focus-only'); if (b.getAttribute('aria-checked') !== 'true') b.click(); return true", Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let rows = webkit::call_async(window.as_ref(), "return [document.querySelectorAll('.table .row:not(.head)').length, document.querySelectorAll('.hidden-note').length]", Duration::from_secs(5)).await;
+        let total = central["account"]["sites"].as_array().map(|s| s.iter().map(|x| x["rows"].as_array().map_or(0, |r| r.len())).sum::<usize>()).unwrap_or(0);
+        let shown = rows.as_deref().ok().and_then(|r| serde_json::from_str::<[usize; 2]>(r).ok());
+        report.check(shown.is_some_and(|[n, notes]| n < total && notes > 0), format!("ocultar offline e sem bônus esconde linhas ({shown:?} de {total})"));
+    }
     let central_number = on_main(app, |app| {
         let window = app.get_webview_window("central")?;
         let pointer = window.ns_window().ok()?;

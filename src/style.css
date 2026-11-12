@@ -1468,3 +1468,20 @@ body.central {
   color: var(--faint);
   font-size: 12px;
 }
+
+.central-bar .toggle {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+  color: var(--soft);
+  font-size: 12px;
+}
+
+.hidden-note {
+  padding: 8px 14px;
+  border-top: 1px solid #23262d;
+  color: var(--faint);
+  font-size: 12px;
+}

@@ -48,6 +48,21 @@ const fmt = (n: number) => n.toLocaleString("pt-BR");
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let view: View | null = null;
+const FOCUS_KEY = "central.ocultar";
+let focusOnly = (() => {
+  try {
+    return localStorage.getItem(FOCUS_KEY) === "1";
+  } catch {
+    return false;
+  }
+})();
+
+/** Some com o interruptor ligado: fora das vagas, sem resgate pronto, e offline ou sem o bônus. */
+function hidden(row: Row): boolean {
+  if (!focusOnly || row.slot !== null || row.ready) return false;
+  const noBonus = row.points !== null && row.rewards.length === 0;
+  return row.state === "offline" || row.state === "closed" || noBonus;
+}
 let openMenu: string | null = null;
 const rowMessages = new Map<string, { text: string; ok: boolean }>();
 
@@ -261,8 +276,15 @@ function renderSite(account: AccountView, site: SiteView): HTMLElement | null {
         el("span", { role: "columnheader", textContent: "Pontos" }),
         el("span", { role: "columnheader" }),
       ),
-      ...site.rows.map((row) => renderRow(account, site, row)),
+      ...site.rows.filter((row) => !hidden(row)).map((row) => renderRow(account, site, row)),
     ),
+    ...(() => {
+      const count = site.rows.filter(hidden).length;
+      if (!count) return [];
+      const show = el("button", { type: "button", className: "link", textContent: "mostrar" });
+      show.addEventListener("click", () => setFocusOnly(false));
+      return [el("div", { className: "hidden-note" }, `${count} ${count === 1 ? "canal oculto" : "canais ocultos"} (offline ou sem o bônus) · `, show)];
+    })(),
   );
 }
 
@@ -335,6 +357,19 @@ function render() {
   renderFeed(view);
   ($("players") as HTMLButtonElement).disabled = !view.account?.livesOn;
 }
+
+function setFocusOnly(on: boolean) {
+  focusOnly = on;
+  try {
+    localStorage.setItem(FOCUS_KEY, on ? "1" : "0");
+  } catch {
+    // Sem armazenamento: vale só até fechar a janela.
+  }
+  $("focus-only").setAttribute("aria-checked", String(on));
+  render();
+}
+$("focus-only").setAttribute("aria-checked", String(focusOnly));
+$("focus-only").addEventListener("click", () => setFocusOnly(!focusOnly));
 
 document.addEventListener("click", () => {
   if (openMenu) {
