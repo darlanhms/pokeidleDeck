@@ -11,7 +11,7 @@ use uuid::Uuid;
 use webview2_com::{
     take_pwstr, CallDevToolsProtocolMethodCompletedHandler, GetCookiesCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2, ICoreWebView2_2, ICoreWebView2_8, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+        ICoreWebView2, ICoreWebView2Settings2, ICoreWebView2_2, ICoreWebView2_8, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
     },
     WebResourceRequestedEventHandler,
 };
@@ -62,15 +62,61 @@ fn browser_args(app: &AppHandle, id: Uuid) -> String {
 
 /// Depois de criada: o bloqueio de anúncios entra como filtro de pedidos.
 pub fn attach(webview: &Webview, page: Page) {
-    if !page.block_ads {
-        return;
-    }
-    let _ = webview.with_webview(|platform| unsafe {
+    let _ = webview.with_webview(move |platform| unsafe {
         let Ok(core) = platform.controller().CoreWebView2() else { return };
-        if let Err(err) = block_ads(&core) {
-            eprintln!("[webview2] bloqueio de anúncios: {err}");
+        if let Err(err) = hide_webview_brand(&core) {
+            eprintln!("[webview2] identificação do navegador: {err}");
+        }
+        if page.block_ads {
+            if let Err(err) = block_ads(&core) {
+                eprintln!("[webview2] bloqueio de anúncios: {err}");
+            }
         }
     });
+}
+
+/// A Twitch recusa o login ("Não há suporte para seu navegador") quando os client hints trazem a marca
+/// "Microsoft Edge WebView2". Fica a mesma identificação do Edge, sem essa marca.
+unsafe fn hide_webview_brand(core: &ICoreWebView2) -> windows::core::Result<()> {
+    let settings = unsafe { core.Settings()? }.cast::<ICoreWebView2Settings2>()?;
+    let mut text = PWSTR::null();
+    unsafe { settings.UserAgent(&mut text)? };
+    let user_agent = take_pwstr(text);
+    let full = user_agent.split("Chrome/").nth(1).and_then(|v| v.split_whitespace().next()).unwrap_or("0.0.0.0").to_owned();
+    let major = full.split('.').next().unwrap_or("0").to_owned();
+    let brands = |version: &str| {
+        serde_json::json!([
+            { "brand": "Chromium", "version": version },
+            { "brand": "Microsoft Edge", "version": version },
+            { "brand": "Not-A.Brand", "version": if version.contains('.') { "99.0.0.0" } else { "99" } },
+        ])
+    };
+    let params = serde_json::json!({
+        "userAgent": user_agent,
+        "userAgentMetadata": {
+            "brands": brands(&major),
+            "fullVersionList": brands(&full),
+            "platform": "Windows",
+            "platformVersion": "19.0.0",
+            "architecture": "x86",
+            "bitness": "64",
+            "model": "",
+            "mobile": false,
+        },
+    });
+    let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|result, _| {
+        if let Err(err) = result {
+            eprintln!("[webview2] identificação do navegador: {}", err.message());
+        }
+        Ok(())
+    }));
+    unsafe {
+        core.CallDevToolsProtocolMethod(
+            &HSTRING::from("Network.setUserAgentOverride"),
+            &HSTRING::from(params.to_string()),
+            &handler,
+        )
+    }
 }
 
 unsafe fn block_ads(core: &ICoreWebView2) -> windows::core::Result<()> {
