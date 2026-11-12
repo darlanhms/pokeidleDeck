@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-account-eval"
+description = "Enables the account_eval command without any pre-configured scope."
+commands.allow = ["account_eval"]
+
+[[permission]]
+identifier = "deny-account-eval"
+description = "Denies the account_eval command without any pre-configured scope."
+commands.deny = ["account_eval"]

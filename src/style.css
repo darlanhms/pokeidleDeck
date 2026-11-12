@@ -1,0 +1,114 @@
+:root {
+  --back: #16181d;
+  --bar: #1f2229;
+  --border: #2c3039;
+  --text: #e6e8ec;
+  --muted: #8a909c;
+  --ok: #4cc38a;
+  --warn: #e5b440;
+  --bad: #e5484d;
+  font: 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  color: var(--text);
+  background: var(--back);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--back);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#top,
+#bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  background: var(--bar);
+}
+
+#top {
+  top: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+#bottom {
+  bottom: 0;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: #2a2e37;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 10px;
+}
+
+button:hover {
+  background: #343945;
+}
+
+#message {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pane-header {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pane-header .dot {
+  color: var(--muted);
+}
+
+.pane-header .dot.ok {
+  color: var(--ok);
+}
+
+.pane-header .dot.login {
+  color: var(--warn);
+}
+
+.pane-header .info {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pane-header .more {
+  margin-left: auto;
+  padding: 0 8px;
+}
+
+.player.playing {
+  color: var(--ok);
+}
+
+.player.stopped {
+  color: var(--bad);
+}

@@ -1,0 +1,170 @@
+//! Autoteste do isolamento das contas (`DECK_SELFTEST=1`, depois `DECK_SELFTEST=2` com o mesmo
+//! `DECK_DATA_DIR`). Marca cada conta com um cookie e um item de localStorage no pokeidle.io e confere
+//! quem enxerga o quê, antes e depois de reabrir o app.
+
+use crate::{config::DeckConfig, deck, webkit};
+use std::{fmt::Write as _, time::Duration};
+use tauri::{AppHandle, Manager};
+use uuid::Uuid;
+
+const MARK_JS: &str = "localStorage.setItem('deckMarker', ID);\n\
+    document.cookie = 'deck_marker=' + ID + '; max-age=31536000; path=/; secure; samesite=lax';\n\
+    return true;";
+
+const READ_JS: &str = "return {\n\
+    ls: localStorage.getItem('deckMarker'),\n\
+    cookie: (document.cookie.match(/(?:^|; )deck_marker=([^;]+)/) || [])[1] || null,\n\
+  };";
+
+struct Report {
+    text: String,
+    failed: bool,
+}
+
+impl Report {
+    fn check(&mut self, ok: bool, what: impl AsRef<str>) {
+        let line = format!("{} {}", if ok { "OK  " } else { "FALHOU" }, what.as_ref());
+        println!("[selftest] {line}");
+        let _ = writeln!(self.text, "{line}");
+        self.failed |= !ok;
+    }
+}
+
+pub fn start(app: AppHandle, phase: String) {
+    tauri::async_runtime::spawn(async move {
+        let mut report = Report { text: String::new(), failed: false };
+        match phase.as_str() {
+            "1" => phase_one(&app, &mut report).await,
+            "2" => phase_two(&app, &mut report).await,
+            other => report.check(false, format!("fase desconhecida: {other}")),
+        }
+        let path = deck::data_dir(&app).join(format!("selftest-{phase}.txt"));
+        let _ = std::fs::write(&path, &report.text);
+        println!("[selftest] resultado em {}", path.display());
+        app.exit(if report.failed { 1 } else { 0 });
+    });
+}
+
+async fn on_main<T: Send + 'static>(
+    app: &AppHandle,
+    f: impl FnOnce(&AppHandle) -> T + Send + 'static,
+) -> T {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f(&handle));
+    })
+    .expect("main thread");
+    rx.await.expect("main thread respondeu")
+}
+
+async fn eval(app: &AppHandle, id: Uuid, script: &str) -> Result<serde_json::Value, String> {
+    let webview = app
+        .get_webview(&deck::label(&id))
+        .ok_or_else(|| "webview não existe".to_owned())?;
+    let json = webkit::call_async(&webview, script, Duration::from_secs(20)).await?;
+    serde_json::from_str(&json).map_err(|e| e.to_string())
+}
+
+async fn wait_loaded(app: &AppHandle, id: Uuid) -> bool {
+    for _ in 0..60 {
+        let state = eval(app, id, "return location.host + '|' + document.readyState").await;
+        if state.as_ref().ok().and_then(|v| v.as_str()) == Some("pokeidle.io|complete") {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    false
+}
+
+async fn mark(app: &AppHandle, report: &mut Report, id: Uuid) {
+    let loaded = wait_loaded(app, id).await;
+    report.check(loaded, format!("{id} carregou o pokeidle.io"));
+    let script = MARK_JS.replace("ID", &format!("'{id}'"));
+    let marked = eval(app, id, &script).await;
+    report.check(marked.is_ok(), format!("{id} marcada ({marked:?})"));
+}
+
+async fn sees_only_itself(app: &AppHandle, report: &mut Report, id: Uuid, when: &str) {
+    let seen = eval(app, id, READ_JS).await;
+    let own = id.to_string();
+    let ok = matches!(&seen, Ok(v) if v["ls"] == own.as_str() && v["cookie"] == own.as_str());
+    report.check(ok, format!("{when}: {id} vê só a própria marca ({seen:?})"));
+}
+
+async fn store_exists(app: &AppHandle, id: Uuid) -> bool {
+    let ids = app.fetch_data_store_identifiers().await.unwrap_or_default();
+    ids.contains(id.as_bytes())
+}
+
+fn panes_fill_without_holes(app: &AppHandle, report: &mut Report, expected: usize) {
+    let layout = deck::current_layout(app).map(|l| serde_json::to_value(l).unwrap());
+    let panes = layout
+        .as_ref()
+        .and_then(|l| l["panes"].as_array().cloned())
+        .unwrap_or_default();
+    let full_width = panes.last().map(|p| p["w"].as_f64()).flatten();
+    let window_width = app
+        .get_window("main")
+        .and_then(|w| Some(w.inner_size().ok()?.to_logical::<f64>(w.scale_factor().ok()?).width));
+    let ok = panes.len() == expected
+        && (expected != 3 || full_width.zip(window_width).is_some_and(|(a, b)| (a - b).abs() < 1.0));
+    report.check(ok, format!("layout com {expected} contas sem buraco ({} painéis)", panes.len()));
+}
+
+async fn phase_one(app: &AppHandle, report: &mut Report) {
+    let first = app.state::<deck::Deck>().accounts()[0].id;
+    let second = on_main(app, |app| deck::add_account(app).map(|a| a.id)).await;
+    let Some(second) = second else {
+        return report.check(false, "não criou a 2ª conta");
+    };
+    panes_fill_without_holes(app, report, 2);
+    mark(app, report, first).await;
+    mark(app, report, second).await;
+
+    let third = on_main(app, |app| deck::add_account(app).map(|a| a.id)).await;
+    let Some(third) = third else {
+        return report.check(false, "não criou a 3ª conta");
+    };
+    panes_fill_without_holes(app, report, 3);
+    mark(app, report, third).await;
+    for id in [first, second, third] {
+        sees_only_itself(app, report, id, "3 contas").await;
+    }
+
+    on_main(app, move |app| deck::remove_account(app, second, true)).await;
+    panes_fill_without_holes(app, report, 2);
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    report.check(!store_exists(app, second).await, format!("data store da conta removida {second} apagado"));
+    report.check(store_exists(app, first).await && store_exists(app, third).await, "data stores das outras continuam");
+    for id in [first, third] {
+        on_main(app, move |app| {
+            if let Some(webview) = app.get_webview(&deck::label(&id)) {
+                let _ = webview.reload();
+            }
+        })
+        .await;
+        let _ = wait_loaded(app, id).await;
+        sees_only_itself(app, report, id, "depois de remover a 2ª").await;
+    }
+    // Dá tempo ao processo de rede do WebKit de gravar os cookies antes de sair.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+}
+
+async fn phase_two(app: &AppHandle, report: &mut Report) {
+    let config = DeckConfig::load(&deck::data_dir(app).join("deck.json"));
+    let ids: Vec<Uuid> = config.accounts.iter().map(|a| a.id).collect();
+    report.check(ids.len() == 2, format!("deck.json voltou com 2 contas ({})", ids.len()));
+    panes_fill_without_holes(app, report, ids.len());
+    for &id in &ids {
+        let _ = wait_loaded(app, id).await;
+        sees_only_itself(app, report, id, "depois de reabrir").await;
+    }
+    for &id in &ids {
+        on_main(app, move |app| deck::remove_account(app, id, true)).await;
+    }
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    for &id in &ids {
+        report.check(!store_exists(app, id).await, format!("limpeza: data store {id} apagado"));
+    }
+}

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "pokeidle-deck",
+  "productName": "PokeIdle Deck",
   "version": "0.1.0",
   "identifier": "com.darlanhermes.pokeidle-deck",
   "build": {
@@ -10,17 +10,12 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "pokeidle-deck",
-        "width": 800,
-        "height": 600
-      }
-    ],
+    "withGlobalTauri": false,
+    "windows": [],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": false
   },
   "bundle": {
     "active": true,
@@ -31,6 +26,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "14.0"
+    }
   }
 }
