@@ -17,6 +17,7 @@ type Row = {
   ready: boolean;
   rewards: RewardView[];
   error: string | null;
+  viewers: number | null;
 };
 type SlotPicker = { index: number; choice: SlotChoice; current: string | null; warn: boolean };
 type SiteView = {
@@ -117,8 +118,10 @@ function stateText(row: Row, site: SiteView): string {
     }
     case "standin":
       return `▶ vaga ${row.slot! + 1} · no lugar de ${row.standInFor}`;
-    case "queued":
-      return site.login === false || !site.slots.length ? "no ar" : "no ar · vagas cheias";
+    case "queued": {
+      const watching = row.viewers ? ` · ${fmt(row.viewers)} assistindo` : "";
+      return (site.login === false || !site.slots.length ? "no ar" : "no ar · vagas cheias") + watching;
+    }
     case "offline":
       return "offline";
     case "closed":

@@ -302,6 +302,7 @@ pub async fn account_report(app: AppHandle, webview: Webview, report: serde_json
     if let Some(id) = id_from_label(webview.label()) {
         app.state::<Deck>().set_report(id, report.clone());
         automation::on_report(&app, id, &report);
+        crate::official::on_report(&app, &report);
         let _ = app.emit_to("deck", "report", serde_json::json!({ "id": id, "report": report }));
     }
 }

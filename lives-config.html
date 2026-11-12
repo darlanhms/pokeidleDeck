@@ -11,13 +11,14 @@
     <form id="form">
       <main>
         <p class="info">
-          Um canal por linha, como aparece no endereço (twitch.tv/rodil → rodil). Use os streamers oficiais do painel de
-          bônus do jogo. O deck abre o player das primeiras da lista que estiverem no ar, até o número escolhido (a
-          primeira tem prioridade), e não deixa live offline aberta. Os pontos só vêm com a live tocando.
+          Os streamers oficiais vêm do próprio jogo (o painel de bônus da Twitch e da Kick) e entram sozinhos, na ordem
+          do jogo, só os com o bônus ligado. Aqui vão canais seus, além desses, um por linha, como aparece no endereço
+          (twitch.tv/rodil → rodil). O deck abre o player dos primeiros no ar, até o número escolhido, e não deixa live
+          offline aberta. Os pontos só vêm com a live tocando.
         </p>
         <div class="columns">
-          <label class="stack">Twitch (em ordem de prioridade)<textarea id="twitch" rows="10" spellcheck="false"></textarea></label>
-          <label class="stack">Kick (em ordem de prioridade)<textarea id="kick" rows="10" spellcheck="false"></textarea></label>
+          <label class="stack">Twitch: canais extras<textarea id="twitch" rows="10" spellcheck="false"></textarea></label>
+          <label class="stack">Kick: canais extras<textarea id="kick" rows="10" spellcheck="false"></textarea></label>
         </div>
         <div class="row">
           <label>Lives da Twitch em cada conta <input class="count" id="twitch-slots" type="number" min="0" max="10" /></label>

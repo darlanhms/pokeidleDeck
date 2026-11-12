@@ -14,7 +14,7 @@
   // A única que cura por % do HP: fica fora da soma "todas as poções" e do custo-benefício. Escolhida em
   // "Qual comprar", vira a poção da regra e a conta passa a ser só dela (por quantidade, sem olhar o HP).
   const GOLDEN_POTION = 70070;
-  const KEYS = ['gold', 'balls', 'items', 'automation', 'activeId', 'nick'];
+  const KEYS = ['gold', 'balls', 'items', 'automation', 'activeId', 'nick', 'twitch', 'kick'];
   const WANTED = new Set(['welcome', 'estado', 'batalha', 'erro']);
 
   let socket = null;
@@ -315,6 +315,17 @@
     });
   }
 
-  Object.defineProperty(window, '__deckRecompra', { value: Object.freeze({ configure, summary }) });
+  /** Os streamers oficiais do painel de bônus do jogo (Twitch e Kick); o site que o jogo não mandou fica de fora. */
+  function official() {
+    if (!account) return null;
+    const list = (site, key) => {
+      const all = account[site]?.oficiais;
+      return Array.isArray(all) ? all.map((o) => ({ channel: String(o?.[key] ?? ''), name: o?.nome ?? null,
+        live: !!o?.aoVivo, active: !!o?.ativo, viewers: Number(o?.espectadores) || 0 })) : undefined;
+    };
+    return { twitch: list('twitch', 'login'), kick: list('kick', 'slug') };
+  }
+
+  Object.defineProperty(window, '__deckRecompra', { value: Object.freeze({ configure, summary, official }) });
   setInterval(tick, 1000);
 })();

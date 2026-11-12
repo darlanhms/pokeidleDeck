@@ -153,12 +153,13 @@ impl LivesConfig {
         }
     }
 
-    pub fn slots(&self, site: Site) -> usize {
+    /// As vagas escolhidas na config; quantas abrem de fato depende dos canais (`official::slots`).
+    pub fn max_slots(&self, site: Site) -> usize {
         let max = match site {
             Site::Twitch => self.twitch_slots,
             Site::Kick => self.kick_slots,
         };
-        max.min(MAX_LIVE_SLOTS).min(self.channels(site).len())
+        max.min(MAX_LIVE_SLOTS)
     }
 }
 

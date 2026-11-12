@@ -12,6 +12,7 @@ mod live_check;
 mod lives;
 mod lives_config;
 mod memory;
+mod official;
 mod points;
 mod menus;
 mod prompt;
@@ -29,6 +30,7 @@ pub fn run() {
         .manage(lives::Lives::default())
         .manage(points::Points::default())
         .manage(central::Central::default())
+        .manage(official::Official::default())
         .invoke_handler(tauri::generate_handler![
             menus::deck_state,
             menus::deck_action,

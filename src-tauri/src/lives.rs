@@ -7,7 +7,7 @@ use crate::{
     automation,
     config::{LiveLimit, Site, SlotChoice},
     deck::{self, Deck},
-    live_check, webkit,
+    live_check, official, webkit,
 };
 use objc2::MainThreadMarker;
 use serde::Serialize;
@@ -134,12 +134,10 @@ pub fn open(app: &AppHandle, id: Uuid) {
     if has_window(app, id) {
         return;
     }
-    let Some((account, twitch, kick)) = app.state::<Deck>().read(|c| {
-        let account = c.accounts.iter().find(|a| a.id == id)?.clone();
-        Some((account, c.lives.slots(Site::Twitch), c.lives.slots(Site::Kick)))
-    }) else {
+    let Some(account) = app.state::<Deck>().read(|c| c.accounts.iter().find(|a| a.id == id).cloned()) else {
         return;
     };
+    let (twitch, kick) = (official::slots(app, Site::Twitch), official::slots(app, Site::Kick));
     if account.off || twitch + kick == 0 {
         return;
     }
@@ -404,12 +402,10 @@ fn navigate(app: &AppHandle, slot: &mut Slot, url: Option<String>, channel: Opti
 
 /// Põe nas vagas de cada site as lives que devem tocar agora. Uma live que continua não recarrega.
 fn apply(app: &AppHandle, id: Uuid) {
-    let Some((limits, channels)) = app.state::<Deck>().read(|c| {
-        let account = c.accounts.iter().find(|a| a.id == id)?;
-        Some((account.lives.clone(), [c.lives.twitch_channels.clone(), c.lives.kick_channels.clone()]))
-    }) else {
+    let Some(limits) = app.state::<Deck>().read(|c| Some(c.accounts.iter().find(|a| a.id == id)?.lives.clone())) else {
         return;
     };
+    let channels = [official::channels(app, Site::Twitch), official::channels(app, Site::Kick)];
     let lives = app.state::<Lives>();
     let live = lives.live.lock().unwrap().clone();
     let answered = lives.answered.lock().unwrap().clone();
@@ -444,6 +440,45 @@ fn apply(app: &AppHandle, id: Uuid) {
     drop(windows);
     layout(app, id);
     emit_summary(app);
+}
+
+/// A lista oficial do jogo mudou: atualiza quem está no ar e as vagas. Se o número de vagas mudou (a
+/// lista cresceu ou encolheu), as janelas reabrem; contas ainda sem janela ganham uma.
+pub fn official_changed(app: &AppHandle) {
+    let lives = app.state::<Lives>();
+    for site in [Site::Twitch, Site::Kick] {
+        let Some(status) = official::live_status(app, site) else { continue };
+        let mut live = lives.live.lock().unwrap();
+        live.extend(status.into_iter().map(|(c, on)| ((site, c), Some(on))));
+        drop(live);
+        lives.answered.lock().unwrap().insert(site);
+    }
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let app = &handle;
+        let wanted = [official::slots(app, Site::Twitch), official::slots(app, Site::Kick)];
+        let stale = app.state::<Lives>().windows.lock().unwrap().values().any(|w| {
+            [Site::Twitch, Site::Kick]
+                .iter()
+                .zip(wanted)
+                .any(|(site, n)| w.slots.iter().filter(|s| s.site == Some(*site)).count() != n)
+        });
+        if stale {
+            let ids: Vec<Uuid> = app.state::<Lives>().windows.lock().unwrap().keys().copied().collect();
+            for id in ids {
+                close(app, id);
+            }
+        }
+        let ids = app.state::<Deck>().read(|c| {
+            let wanted = c.lives_accounts();
+            c.accounts.iter().filter(|a| wanted.contains(&a.id) && !a.off).map(|a| a.id).collect::<Vec<_>>()
+        });
+        for id in ids {
+            open(app, id);
+        }
+        apply_all(app);
+        crate::central::emit(app);
+    });
 }
 
 pub fn apply_all(app: &AppHandle) {
@@ -540,10 +575,15 @@ async fn check_loop(app: AppHandle) {
 }
 
 async fn check(app: &AppHandle) {
-    let (twitch, kick) = app.state::<Deck>().read(|c| {
-        let list = |site| if c.lives.slots(site) > 0 { c.lives.channels(site).to_vec() } else { Vec::new() };
-        (list(Site::Twitch), list(Site::Kick))
-    });
+    // Quem o jogo já diz se está no ar não precisa de conferência na rede; só os extras de fora da lista.
+    let list = |site| {
+        if official::slots(app, site) == 0 {
+            return Vec::new();
+        }
+        let known = official::live_status(app, site).unwrap_or_default();
+        official::channels(app, site).into_iter().filter(|c| !known.contains_key(c)).collect::<Vec<_>>()
+    };
+    let (twitch, kick) = (list(Site::Twitch), list(Site::Kick));
     let twitch_task = tauri::async_runtime::spawn_blocking(move || live_check::twitch_live(&twitch));
     let mut results: Vec<((Site, String), Option<bool>)> = live_check::kick_live(app, &kick)
         .await
@@ -554,6 +594,11 @@ async fn check(app: &AppHandle) {
     if let Ok(map) = twitch_task.await {
         results.extend(map.into_iter().map(|(c, v)| ((Site::Twitch, c), v)));
         app.state::<Lives>().answered.lock().unwrap().insert(Site::Twitch);
+    }
+    for site in [Site::Twitch, Site::Kick] {
+        if let Some(status) = official::live_status(app, site) {
+            results.extend(status.into_iter().map(|(c, on)| ((site, c), Some(on))));
+        }
     }
     app.state::<Lives>().live.lock().unwrap().extend(results);
 
@@ -848,7 +893,7 @@ pub fn lives_ui_full_page(app: AppHandle, webview: tauri::Webview) {
 
 /// Tira um canal da lista desta conta (ou esvazia todas as vagas do site, com `None`).
 pub fn close_live(app: &AppHandle, id: Uuid, site: Site, channel: Option<String>) {
-    let slots = app.state::<Deck>().read(|c| c.lives.slots(site));
+    let slots = official::slots(app, site);
     app.state::<Deck>().update(|c| {
         let Some(account) = c.account_mut(id) else { return };
         let limit = account.lives.limit_mut(site);
@@ -989,8 +1034,9 @@ fn site_summary(
 pub fn summary(app: &AppHandle, id: Uuid) -> Option<String> {
     let (limits, maxes, chest) = app.state::<Deck>().read(|c| {
         let account = c.accounts.iter().find(|a| a.id == id)?;
-        Some((account.lives.clone(), [c.lives.slots(Site::Twitch), c.lives.slots(Site::Kick)], c.lives.claim_chest))
-    })?;
+        Some((account.lives.clone(), c.lives.claim_chest))
+    })
+    .map(|(limits, chest)| (limits, [official::slots(app, Site::Twitch), official::slots(app, Site::Kick)], chest))?;
     // Os pontos de cada live só aparecem com o resgate (ou o baú, na Twitch) ligado naquele site.
     let shows_points = |site: Site| match site {
         Site::Twitch => limits.redeem_twitch.is_some() || chest,

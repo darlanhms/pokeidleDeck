@@ -48,7 +48,7 @@ fn refresh(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         for site in [Site::Twitch, Site::Kick] {
-            let channels = app.state::<Deck>().read(|c| c.lives.channels(site).to_vec());
+            let channels = crate::official::channels(&app, site);
             points::scan_account(&app, id, site, &channels).await;
         }
         emit(&app);
@@ -108,6 +108,8 @@ pub struct Row {
     ready: bool,
     rewards: Vec<RewardView>,
     error: Option<String>,
+    /// Espectadores agora, se o jogo listou o canal como oficial e no ar.
+    viewers: Option<u64>,
 }
 
 #[derive(Clone, Serialize)]
@@ -163,10 +165,10 @@ pub struct View {
 }
 
 fn site_view(app: &AppHandle, id: Uuid, site: Site) -> SiteView {
-    let (channels, limit, auto_redeem) = app.state::<Deck>().read(|c| {
+    let channels = crate::official::channels(app, site);
+    let (limit, auto_redeem) = app.state::<Deck>().read(|c| {
         let account = c.accounts.iter().find(|a| a.id == id);
         (
-            c.lives.channels(site).to_vec(),
             account.map(|a| a.lives.limit(site).clone()).unwrap_or_default(),
             account.and_then(|a| match site {
                 Site::Twitch => a.lives.redeem_twitch,
@@ -237,6 +239,7 @@ fn site_view(app: &AppHandle, id: Uuid, site: Site) -> SiteView {
                 points,
                 owner,
                 ready: rewards.iter().any(|r| r.affordable),
+                viewers: crate::official::viewers(app, site, channel),
                 rewards,
                 error,
             }

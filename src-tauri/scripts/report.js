@@ -23,6 +23,7 @@
       login: loginScreen(),
       url: location.href,
       restock: s,
+      official: (() => { try { return window.__deckRecompra.official(); } catch { return null; } })(),
     };
     invoke('account_report', { report }).catch(() => { });
   }, 1000);

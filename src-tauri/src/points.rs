@@ -321,11 +321,11 @@ fn parse_read(value: Option<serde_json::Value>) -> ChannelInfo {
 
 /// Lê o saldo e os bônus de todos os canais da lista em cada conta com lives (tocando ou não).
 pub async fn scan(app: &AppHandle, site: Site) {
-    let (accounts, channels) = app.state::<Deck>().read(|c| {
+    let accounts: Vec<Uuid> = app.state::<Deck>().read(|c| {
         let ids = c.lives_accounts();
-        let accounts: Vec<Uuid> = c.accounts.iter().filter(|a| ids.contains(&a.id) && !a.off).map(|a| a.id).collect();
-        (accounts, c.lives.channels(site).to_vec())
+        c.accounts.iter().filter(|a| ids.contains(&a.id) && !a.off).map(|a| a.id).collect()
     });
+    let channels = crate::official::channels(app, site);
     for id in accounts {
         scan_account(app, id, site, &channels).await;
     }
