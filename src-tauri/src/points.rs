@@ -639,15 +639,17 @@ pub fn open_log_window(app: &AppHandle) {
         let _ = window.set_focus();
         return;
     }
-    let result = WebviewWindowBuilder::new(app, "registro", WebviewUrl::App("registro.html".into()))
-        .title("Registro dos resgates")
-        .inner_size(820.0, 480.0)
-        .min_inner_size(520.0, 300.0)
-        .center()
-        .build();
-    if let Err(err) = result {
-        eprintln!("[lives] não abriu o registro: {err}");
-    }
+    deck::off_main(app, move |app| {
+        let result = WebviewWindowBuilder::new(app, "registro", WebviewUrl::App("registro.html".into()))
+            .title("Registro dos resgates")
+            .inner_size(820.0, 480.0)
+            .min_inner_size(520.0, 300.0)
+            .center()
+            .build();
+        if let Err(err) = result {
+            eprintln!("[lives] não abriu o registro: {err}");
+        }
+    });
 }
 
 #[derive(Serialize)]

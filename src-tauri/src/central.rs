@@ -29,15 +29,17 @@ pub fn open(app: &AppHandle, account: Option<Uuid>) {
         emit(app);
         return;
     }
-    let result = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("central.html".into()))
-        .title("Lives")
-        .inner_size(1180.0, 820.0)
-        .min_inner_size(820.0, 520.0)
-        .center()
-        .build();
-    if let Err(err) = result {
-        eprintln!("[central] não abriu: {err}");
-    }
+    crate::deck::off_main(app, move |app| {
+        let result = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("central.html".into()))
+            .title("Lives")
+            .inner_size(1180.0, 820.0)
+            .min_inner_size(820.0, 520.0)
+            .center()
+            .build();
+        if let Err(err) = result {
+            eprintln!("[central] não abriu: {err}");
+        }
+    });
     refresh(app);
 }
 

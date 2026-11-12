@@ -250,16 +250,18 @@ pub fn open_restock(app: &AppHandle, id: Uuid) {
     let Some(name) = app.state::<Deck>().accounts().into_iter().find(|a| a.id == id).map(|a| a.name) else {
         return;
     };
-    let result = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("restock.html".into()))
-        .title(format!("Recompra · {name}"))
-        .inner_size(600.0, 780.0)
-        .min_inner_size(520.0, 400.0)
-        .minimizable(false)
-        .center()
-        .build();
-    if let Err(err) = result {
-        eprintln!("[deck] não abriu a recompra de {name}: {err}");
-    }
+    deck::off_main(app, move |app| {
+        let result = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("restock.html".into()))
+            .title(format!("Recompra · {name}"))
+            .inner_size(600.0, 780.0)
+            .min_inner_size(520.0, 400.0)
+            .minimizable(false)
+            .center()
+            .build();
+        if let Err(err) = result {
+            eprintln!("[deck] não abriu a recompra de {name}: {err}");
+        }
+    });
 }
 
 #[derive(Serialize)]

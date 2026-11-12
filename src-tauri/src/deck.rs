@@ -152,6 +152,13 @@ pub fn later(app: &AppHandle, f: impl FnOnce(&AppHandle) + Send + 'static) {
     let _ = app.run_on_main_thread(move || f(&handle));
 }
 
+/// Cria janela fora da main thread: o Tauri passa a criação para ela e espera, sem a criação acontecer
+/// dentro de outro evento (no Windows, o WebView2 fica em branco quando cria aninhado).
+pub fn off_main(app: &AppHandle, f: impl FnOnce(&AppHandle) + Send + 'static) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || f(&handle));
+}
+
 pub fn main_window(app: &AppHandle) -> Option<Window> {
     app.get_window("main")
 }

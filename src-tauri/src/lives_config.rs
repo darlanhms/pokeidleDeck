@@ -17,16 +17,18 @@ pub fn open(app: &AppHandle) {
         let _ = window.set_focus();
         return;
     }
-    let result = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("lives-config.html".into()))
-        .title("Config das lives")
-        .inner_size(600.0, 760.0)
-        .min_inner_size(520.0, 520.0)
-        .minimizable(false)
-        .center()
-        .build();
-    if let Err(err) = result {
-        eprintln!("[lives] não abriu a config: {err}");
-    }
+    crate::deck::off_main(app, move |app| {
+        let result = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("lives-config.html".into()))
+            .title("Config das lives")
+            .inner_size(600.0, 760.0)
+            .min_inner_size(520.0, 520.0)
+            .minimizable(false)
+            .center()
+            .build();
+        if let Err(err) = result {
+            eprintln!("[lives] não abriu a config: {err}");
+        }
+    });
 }
 
 #[derive(Serialize, Deserialize)]

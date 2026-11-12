@@ -83,6 +83,8 @@ pub fn run() {
         .on_menu_event(menus::on_menu_event)
         .setup(|app| {
             let handle = app.handle();
+            #[cfg(windows)]
+            log_to_file(handle);
             hunt::load(handle);
             deck::setup(handle)?;
             hunt::update_later(handle);
@@ -113,4 +115,27 @@ pub fn run() {
             }
         }
     });
+}
+
+/// No Windows o app não tem console: os avisos (`eprintln!`) vão para `deck.log`, na pasta de dados.
+#[cfg(windows)]
+fn log_to_file(app: &tauri::AppHandle) {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::{
+        Foundation::HANDLE,
+        System::Console::{SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE},
+    };
+    let dir = deck::data_dir(app);
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("deck.log");
+    // Começa de novo a cada abertura, guardando a anterior.
+    let _ = std::fs::rename(&path, dir.join("deck.anterior.log"));
+    let Ok(file) = std::fs::File::create(&path) else { return };
+    let handle = HANDLE(file.as_raw_handle());
+    unsafe {
+        let _ = SetStdHandle(STD_ERROR_HANDLE, handle);
+        let _ = SetStdHandle(STD_OUTPUT_HANDLE, handle);
+    }
+    std::mem::forget(file);
+    std::panic::set_hook(Box::new(|info| eprintln!("[pânico] {info}")));
 }
