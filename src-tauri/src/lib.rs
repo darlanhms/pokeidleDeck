@@ -36,7 +36,18 @@ mod webkit;
 use tauri::Manager;
 
 pub fn run() {
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // Um deck só: dois abertos usariam as mesmas contas e o mesmo deck.json. Com outra pasta de dados
+    // (autotestes) pode rodar junto.
+    if std::env::var_os("DECK_DATA_DIR").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = deck::main_window(app) {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .manage(menus::AppMenuState::default())
         .manage(prompt::PromptState::default())

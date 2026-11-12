@@ -45,8 +45,18 @@ fn store_dir(app: &AppHandle, id: Uuid) -> PathBuf {
 /// A pasta de dados da conta (ou uma sessão anônima, sem `store`).
 pub fn prepare<R: Runtime>(app: &AppHandle, builder: WebviewBuilder<R>, store: Option<Uuid>, _page: Page) -> WebviewBuilder<R> {
     match store {
-        Some(id) => builder.data_directory(store_dir(app, id)).additional_browser_args(BROWSER_ARGS),
+        Some(id) => builder.data_directory(store_dir(app, id)).additional_browser_args(&browser_args(app, id)),
         None => builder.incognito(true),
+    }
+}
+
+/// Com `DECK_DEBUG_PORT=9300`, o navegador da 1ª conta abre o DevTools remoto na 9301, o da 2ª na 9302…
+fn browser_args(app: &AppHandle, id: Uuid) -> String {
+    let port = std::env::var("DECK_DEBUG_PORT").ok().and_then(|p| p.parse::<u16>().ok());
+    let index = app.state::<crate::deck::Deck>().read(|c| c.accounts.iter().position(|a| a.id == id));
+    match (port, index) {
+        (Some(base), Some(index)) => format!("{BROWSER_ARGS} --remote-debugging-port={}", base + 1 + index as u16),
+        _ => BROWSER_ARGS.to_owned(),
     }
 }
 
