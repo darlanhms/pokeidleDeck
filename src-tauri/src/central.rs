@@ -43,6 +43,7 @@ pub fn open(app: &AppHandle, account: Option<Uuid>) {
 
 /// Lê de novo o saldo dos canais da conta escolhida (a central acabou de abrir ou trocou de conta).
 fn refresh(app: &AppHandle) {
+    lives::refresh_logins(app);
     let Some(id) = selected(app) else { return };
     let app = app.clone();
     tauri::async_runtime::spawn(async move {

@@ -191,6 +191,12 @@ pub fn open(app: &AppHandle, id: Uuid) {
                 let finished = matches!(payload.event(), PageLoadEvent::Finished);
                 let app = webview.app_handle();
                 with_slot(app, id, &handle_label, |slot| slot.loaded = finished && !blank && slot.url.is_some());
+                // Entrar na Twitch/Kick termina numa página nova: confere o login na hora, sem esperar a
+                // próxima conferência.
+                if finished && !blank && login.is_some() {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move { refresh_login(&app, id).await });
+                }
             });
         match window.add_child(builder, LogicalPosition::new(0.0, TAB_BAR), LogicalSize::new(640.0, 360.0)) {
             Ok(webview) => {
@@ -445,6 +451,16 @@ pub fn apply_all(app: &AppHandle) {
     for id in ids {
         apply(app, id);
     }
+}
+
+pub fn refresh_logins(app: &AppHandle) {
+    let ids: Vec<Uuid> = app.state::<Lives>().windows.lock().unwrap().keys().copied().collect();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        for id in ids {
+            refresh_login(&app, id).await;
+        }
+    });
 }
 
 pub async fn has_cookie(app: &AppHandle, id: Uuid, domain: &str, name: &str) -> bool {
