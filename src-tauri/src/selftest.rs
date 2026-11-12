@@ -40,6 +40,7 @@ pub fn start(app: AppHandle, phase: String) {
             "menu" => return menu_over_webviews(&app).await,
             "shell" => shell(&app, &mut report).await,
             "auto" => automations(&app, &mut report).await,
+            "lives" => lives_phase(&app, &mut report).await,
             other => report.check(false, format!("fase desconhecida: {other}")),
         }
         let path = deck::data_dir(&app).join(format!("selftest-{phase}.txt"));
@@ -503,4 +504,75 @@ async fn automations(app: &AppHandle, report: &mut Report) {
         }
     }
     report.check(title.contains("12.345"), format!("janela da recompra abre com a config da conta ({title})"));
+}
+
+/// Lives de verdade (precisa de internet e de algum canal da lista no ar): a janela fora da tela, a
+/// página de entrar na Twitch sem login, o player da Kick tocando, fechar e abrir de novo.
+async fn lives_phase(app: &AppHandle, report: &mut Report) {
+    use crate::{config::Site, lives};
+    let id = app.state::<deck::Deck>().accounts()[0].id;
+    on_main(app, |app| lives::start(app)).await;
+    let mut kick = None;
+    for _ in 0..40 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let slots = lives::snapshot(app, id);
+        kick = slots.iter().find(|s| s.0 == Some(Site::Kick) && s.1.is_some()).and_then(|s| s.1.clone());
+        let login = slots.iter().any(|s| s.0.is_none() && s.2.as_deref() == Some("https://www.twitch.tv/login"));
+        if kick.is_some() && login {
+            break;
+        }
+    }
+    let slots = lives::snapshot(app, id);
+    println!("[selftest] vagas: {slots:?}");
+    report.check(kick.is_some(), format!("a Kick abriu a primeira live no ar ({kick:?})"));
+    let offline = ["yetz", "surskity"].iter().filter(|c| slots.iter().any(|s| s.1.as_deref() == Some(**c))).count();
+    report.check(offline == 0, format!("nenhuma live offline da Kick aberta ({offline})"));
+    report.check(
+        slots.iter().any(|s| s.0.is_none() && s.2.as_deref() == Some("https://www.twitch.tv/login")),
+        "sem login da Twitch: a página de entrar abre e os players da Twitch esperam",
+    );
+    report.check(
+        slots.iter().filter(|s| s.0 == Some(Site::Twitch)).all(|s| s.1.is_none()),
+        "nenhum player da Twitch sem login",
+    );
+    let parked = app.get_window(&format!("lives-{}", id.simple())).and_then(|w| {
+        let scale = w.scale_factor().ok()?;
+        let x = w.outer_position().ok()?.to_logical::<f64>(scale).x;
+        let right = app.available_monitors().ok()?.iter().map(|m| (m.position().x as f64 + m.size().width as f64) / m.scale_factor()).fold(0.0, f64::max);
+        Some(x >= right)
+    });
+    report.check(parked == Some(true), format!("a janela das lives fica fora da tela ({parked:?})"));
+
+    tokio::time::sleep(Duration::from_secs(70)).await;
+    let playing = lives::snapshot(app, id).iter().find(|s| s.0 == Some(Site::Kick) && s.1.is_some()).and_then(|s| s.3);
+    report.check(playing == Some(true), format!("o vigia vê o player da Kick tocando fora da tela ({playing:?})"));
+    act(app, "lives:show".into()).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let number = on_main(app, move |app| {
+        let window = app.get_window(&format!("lives-{}", id.simple()))?;
+        let pointer = window.ns_window().ok()?;
+        Some(unsafe { (*(pointer as *const objc2_app_kit::NSWindow)).windowNumber() })
+    })
+    .await;
+    if let Some(number) = number {
+        let shot = deck::data_dir(app).join("lives.png");
+        let _ = std::process::Command::new("screencapture").args(["-x", "-o", "-l", &number.to_string()]).arg(&shot).status();
+    }
+    on_main(app, move |app| lives::park(app, id)).await;
+
+    if let Some(channel) = kick.clone() {
+        let close = format!("lives:close:{id}:kick:{channel}");
+        act(app, close).await;
+        let closed = lives::snapshot(app, id).iter().all(|s| s.1.as_deref() != Some(channel.as_str()));
+        let saved = app.state::<deck::Deck>().accounts()[0].lives.kick.closed.contains(&channel);
+        report.check(closed && saved, format!("fechar a live de {channel} na conta"));
+        act(app, format!("lives:reopen:{id}:kick:*")).await;
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        let back = lives::snapshot(app, id).iter().any(|s| s.1.as_deref() == Some(channel.as_str()));
+        report.check(back, format!("abrir todas de novo traz {channel} de volta"));
+    }
+
+    act(app, format!("lives:toggle:{id}")).await;
+    let gone = !lives::has_window(app, id) && app.get_window(&format!("lives-{}", id.simple())).is_none();
+    report.check(gone, "desligar as lives na conta fecha a janela e os players");
 }

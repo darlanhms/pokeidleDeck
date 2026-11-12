@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-lives-ui-park"
+description = "Enables the lives_ui_park command without any pre-configured scope."
+commands.allow = ["lives_ui_park"]
+
+[[permission]]
+identifier = "deny-lives-ui-park"
+description = "Denies the lives_ui_park command without any pre-configured scope."
+commands.deny = ["lives_ui_park"]

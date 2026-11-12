@@ -19,6 +19,148 @@ pub struct Account {
     pub muted: bool,
     #[serde(default)]
     pub restock: RestockConfig,
+    #[serde(default)]
+    pub lives: AccountLives,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Site {
+    Twitch,
+    Kick,
+}
+
+impl Site {
+    pub fn name(self) -> &'static str {
+        match self {
+            Site::Twitch => "Twitch",
+            Site::Kick => "Kick",
+        }
+    }
+}
+
+/// O bônus do PokeIdle que a conta resgata com os pontos do canal (o custo de verdade vem do canal).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Reward {
+    Xp,
+    Capture,
+    Lure,
+}
+
+/// O que o "fechar a live" de uma conta mudou num site: as vagas a menos e os canais fechados.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LiveLimit {
+    /// Quantas lives do site abrem nesta conta; `None` é o limite do deck. Cada live fechada leva a
+    /// vaga junto, para a conferência seguinte não abrir outra no lugar.
+    pub slots: Option<usize>,
+    pub closed: Vec<String>,
+}
+
+impl LiveLimit {
+    pub fn slots_of(&self, max: usize) -> usize {
+        self.slots.unwrap_or(max).min(max)
+    }
+
+    pub fn limited(&self) -> bool {
+        self.slots.is_some() || !self.closed.is_empty()
+    }
+
+    pub fn fit(&mut self, max: usize) {
+        if self.slots.is_some_and(|s| s >= max) {
+            self.slots = None;
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AccountLives {
+    pub twitch: LiveLimit,
+    pub kick: LiveLimit,
+    pub redeem_twitch: Option<Reward>,
+    pub redeem_kick: Option<Reward>,
+}
+
+impl AccountLives {
+    pub fn limit(&self, site: Site) -> &LiveLimit {
+        match site {
+            Site::Twitch => &self.twitch,
+            Site::Kick => &self.kick,
+        }
+    }
+
+    pub fn limit_mut(&mut self, site: Site) -> &mut LiveLimit {
+        match site {
+            Site::Twitch => &mut self.twitch,
+            Site::Kick => &mut self.kick,
+        }
+    }
+}
+
+pub const MAX_LIVE_SLOTS: usize = 10;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LivesConfig {
+    /// Contas que mantêm lives abertas (a vinculada à Twitch/Kick, normalmente a main). `None` = de
+    /// fábrica: a primeira conta.
+    pub accounts: Option<Vec<Uuid>>,
+    /// Em ordem de prioridade: abrem as primeiras que estiverem no ar.
+    pub twitch_channels: Vec<String>,
+    pub kick_channels: Vec<String>,
+    pub twitch_slots: usize,
+    /// 2 de fábrica: a Kick só dá pontos em 2 lives ao mesmo tempo por conta.
+    pub kick_slots: usize,
+    /// Pegar o baú de bônus da Twitch (+50 a cada ~15 min).
+    pub claim_chest: bool,
+    pub points_height: f64,
+}
+
+impl Default for LivesConfig {
+    fn default() -> Self {
+        let list = |s: &str| s.split(' ').map(String::from).collect();
+        Self {
+            accounts: None,
+            // Os streamers oficiais do painel de bônus do jogo (outubro de 2026).
+            twitch_channels: list("tftoddy clovaobengala axtlol patopapao matta guaxilol1 rodil cogu luccatv faasii biscoitao techzz dersin2k denissnidertv"),
+            kick_channels: list("biscoitao yetz surskity"),
+            twitch_slots: 2,
+            kick_slots: 2,
+            claim_chest: true,
+            points_height: 640.0,
+        }
+    }
+}
+
+impl LivesConfig {
+    pub fn channels(&self, site: Site) -> &[String] {
+        match site {
+            Site::Twitch => &self.twitch_channels,
+            Site::Kick => &self.kick_channels,
+        }
+    }
+
+    pub fn slots(&self, site: Site) -> usize {
+        let max = match site {
+            Site::Twitch => self.twitch_slots,
+            Site::Kick => self.kick_slots,
+        };
+        max.min(MAX_LIVE_SLOTS).min(self.channels(site).len())
+    }
+}
+
+/// Um canal por linha, como aparece no endereço (twitch.tv/rodil → rodil); aceita colar o link.
+pub fn parse_channels(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for part in text.split(|c: char| c == '\n' || c == '\r' || c == ',' || c == ' ') {
+        let part = part.trim().trim_end_matches('/');
+        let part = part.rsplit('/').next().unwrap_or("").trim_start_matches('@').to_lowercase();
+        if !part.is_empty() && !out.contains(&part) {
+            out.push(part);
+        }
+    }
+    out
 }
 
 pub const MAX_STOCK: i64 = 10_000_000;
@@ -119,6 +261,7 @@ pub struct DeckConfig {
     pub ultra: bool,
     /// A página vê o "reduzir movimento" ligado e o jogo corta as animações contínuas.
     pub reduce_motion: bool,
+    pub lives: LivesConfig,
 }
 
 impl Default for DeckConfig {
@@ -137,6 +280,7 @@ impl Default for DeckConfig {
             maximized: false,
             ultra: false,
             reduce_motion: true,
+            lives: LivesConfig::default(),
         }
     }
 }
@@ -169,7 +313,31 @@ impl DeckConfig {
             .map(|n| format!("Conta {n}"))
             .find(|name| !taken(name))
             .expect("sequência infinita");
-        Account { id: Uuid::new_v4(), name, off: false, muted: false, restock: RestockConfig::default() }
+        Account {
+            id: Uuid::new_v4(),
+            name,
+            off: false,
+            muted: false,
+            restock: RestockConfig::default(),
+            lives: AccountLives::default(),
+        }
+    }
+
+    /// As contas com lives abertas, na ordem do deck.
+    pub fn lives_accounts(&self) -> Vec<Uuid> {
+        match &self.lives.accounts {
+            Some(ids) => self.accounts.iter().filter(|a| ids.contains(&a.id)).map(|a| a.id).collect(),
+            None => self.accounts.first().map(|a| vec![a.id]).unwrap_or_default(),
+        }
+    }
+
+    pub fn set_lives_account(&mut self, id: Uuid, on: bool) {
+        let mut ids = self.lives_accounts();
+        ids.retain(|x| *x != id);
+        if on {
+            ids.push(id);
+        }
+        self.lives.accounts = Some(ids);
     }
 
     pub fn account_mut(&mut self, id: Uuid) -> Option<&mut Account> {
@@ -307,6 +475,34 @@ mod tests {
         assert_eq!(config.zoom, 1.0);
         assert!(config.reduce_motion);
         assert_eq!(config.accounts[0].restock.balls.id, ULTRA_BALL);
+    }
+
+    #[test]
+    fn channels_accept_links_and_at_names() {
+        assert_eq!(
+            parse_channels("https://kick.com/Yetz/\n@rodil, rodil  twitch.tv/matta"),
+            vec!["yetz", "rodil", "matta"]
+        );
+    }
+
+    #[test]
+    fn lives_default_to_the_first_account_until_chosen() {
+        let mut config = two_accounts();
+        let (a, b) = (config.accounts[0].id, config.accounts[1].id);
+        assert_eq!(config.lives_accounts(), vec![a]);
+        config.set_lives_account(b, true);
+        config.set_lives_account(a, false);
+        assert_eq!(config.lives_accounts(), vec![b]);
+    }
+
+    #[test]
+    fn closed_lives_take_their_slot() {
+        let mut limit = LiveLimit { slots: Some(1), closed: vec!["x".into()] };
+        assert_eq!(limit.slots_of(2), 1);
+        assert!(limit.limited());
+        limit.slots = Some(5);
+        limit.fit(2);
+        assert_eq!(limit.slots, None);
     }
 
     #[test]

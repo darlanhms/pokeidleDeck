@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Config das lives</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/lives-config.ts" defer></script>
+  </head>
+  <body class="dialog">
+    <form id="form">
+      <main>
+        <p class="info">
+          Um canal por linha, como aparece no endereço (twitch.tv/rodil → rodil). Use os streamers oficiais do painel de
+          bônus do jogo. O deck abre o player das primeiras da lista que estiverem no ar, até o número escolhido (a
+          primeira tem prioridade), e não deixa live offline aberta. Os pontos só vêm com a live tocando.
+        </p>
+        <div class="columns">
+          <label class="stack">Twitch (em ordem de prioridade)<textarea id="twitch" rows="10" spellcheck="false"></textarea></label>
+          <label class="stack">Kick (em ordem de prioridade)<textarea id="kick" rows="10" spellcheck="false"></textarea></label>
+        </div>
+        <div class="row">
+          <label>Lives da Twitch em cada conta <input class="count" id="twitch-slots" type="number" min="0" max="10" /></label>
+          <label>Lives da Kick em cada conta <input class="count" id="kick-slots" type="number" min="0" max="10" /></label>
+        </div>
+        <p class="info">De fábrica 2 de cada (a Kick só dá pontos em 2 lives ao mesmo tempo por conta); 0 = nenhuma.</p>
+
+        <fieldset class="item">
+          <strong>Resgatar sozinho</strong>
+          <div class="redeem-grid" id="redeem">
+            <span></span><span class="hint">com os pontos da Kick</span><span class="hint">com os pontos da Twitch</span>
+          </div>
+          <p class="info">
+            Confere o saldo de cada live aberta na conta (Kick a cada 5 min, Twitch a cada 2) e resgata 1 bônus se der
+            (as horas acumulam). Vincule a Kick e a Twitch no jogo em cada conta que resgata: sem isso os pontos voltam e
+            o deck para de resgatar nela.
+          </p>
+          <label class="check"><input type="checkbox" id="chest" /> Pegar sozinho o baú de bônus da Twitch (+50 pontos a cada ~15 min)</label>
+        </fieldset>
+
+        <div class="actions">
+          <button type="button" id="cancel">Cancelar</button>
+          <button type="submit" class="primary">Salvar</button>
+        </div>
+      </main>
+    </form>
+  </body>
+</html>

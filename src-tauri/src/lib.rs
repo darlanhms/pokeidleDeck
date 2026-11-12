@@ -7,6 +7,9 @@ mod config;
 mod deck;
 mod kick;
 mod layout;
+mod live_check;
+mod lives;
+mod lives_config;
 mod memory;
 mod menus;
 mod prompt;
@@ -21,6 +24,7 @@ pub fn run() {
         .manage(menus::AppMenuState::default())
         .manage(prompt::PromptState::default())
         .manage(automation::Automation::default())
+        .manage(lives::Lives::default())
         .invoke_handler(tauri::generate_handler![
             menus::deck_state,
             menus::deck_action,
@@ -29,6 +33,12 @@ pub fn run() {
             menus::account_menu,
             menus::page_key,
             menus::ultra_menu,
+            menus::lives_menu,
+            lives::lives_ui_state,
+            lives::lives_ui_select,
+            lives::lives_ui_park,
+            lives_config::lives_config_get,
+            lives_config::lives_config_set,
             automation::account_click,
             automation::restock_get,
             automation::restock_set,
@@ -44,6 +54,9 @@ pub fn run() {
             let handle = app.handle();
             deck::setup(handle)?;
             memory::start(handle);
+            if std::env::var_os("DECK_SELFTEST").is_none() {
+                lives::start(handle);
+            }
             match std::env::var("DECK_SELFTEST") {
                 Ok(phase) => selftest::start(handle.clone(), phase),
                 Err(_) => kick::setup(handle)?,

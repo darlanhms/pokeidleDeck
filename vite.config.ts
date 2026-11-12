@@ -12,7 +12,7 @@ export default defineConfig(() => ({
   clearScreen: false,
   build: {
     rollupOptions: {
-      input: { main: "index.html", prompt: "prompt.html", restock: "restock.html" },
+      input: { main: "index.html", prompt: "prompt.html", restock: "restock.html", lives: "lives.html", livesConfig: "lives-config.html" },
     },
   },
   // 2. tauri expects a fixed port, fail if that port is not available

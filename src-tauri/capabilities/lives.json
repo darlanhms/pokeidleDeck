@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "lives",
+  "description": "A barra das janelas de lives e a config das lives",
+  "webviews": [
+    "livesui-*",
+    "lives-config"
+  ],
+  "permissions": [
+    "core:default",
+    "allow-lives-ui-state",
+    "allow-lives-ui-select",
+    "allow-lives-ui-park",
+    "allow-lives-config-get",
+    "allow-lives-config-set",
+    "core:window:allow-close"
+  ]
+}

@@ -1,7 +1,7 @@
 //! As contas: a webview de cada uma e o que se faz com ela. Tudo aqui roda na main thread.
 
 use crate::{
-    automation,
+    automation, lives,
     config::{Account, MAX_ACCOUNTS},
     deck::{self, Deck, Status},
     prompt, webkit,
@@ -149,6 +149,7 @@ pub fn remove(app: &AppHandle, id: Uuid, delete_data: bool) {
         let _ = webview.close();
     }
     deck.forget(id);
+    lives::close(app, id);
     deck::refresh(app);
     if delete_data {
         let app = app.clone();
@@ -217,7 +218,11 @@ pub fn set_off(app: &AppHandle, id: Uuid, off: bool) {
             let _ = webview.hide();
         }
         deck.set_runtime(id, |r| *r = Default::default());
+        lives::close(app, id);
     } else {
+        if deck.read(|c| c.lives_accounts().contains(&id)) {
+            lives::open(app, id);
+        }
         match webview(app, id) {
             Some(webview) => {
                 deck.set_runtime(id, |r| *r = Default::default());

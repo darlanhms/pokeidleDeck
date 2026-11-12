@@ -208,6 +208,36 @@ pub async fn remove_data_store(app: &AppHandle, id: Uuid) -> Result<(), String> 
     rx.await.map_err(|_| "o WebKit não respondeu".to_owned())?
 }
 
+/// Os cookies (nome, valor) do data store da conta cujo domínio termina em `domain`. Lê inclusive os
+/// HttpOnly, como o `session_token` da Kick e o `auth-token` da Twitch, que a página não enxerga.
+pub async fn cookies(app: &AppHandle, store: Uuid, domain: &str) -> Result<Vec<(String, String)>, String> {
+    let (reply, rx) = Reply::<Vec<(String, String)>>::new();
+    let domain = domain.trim_start_matches('.').to_owned();
+    app.run_on_main_thread(move || unsafe {
+        let mtm = MainThreadMarker::new_unchecked();
+        let jar = WKWebsiteDataStore::dataStoreForIdentifier(&ns_uuid(store), mtm).httpCookieStore();
+        let done = RcBlock::new(move |cookies: NonNull<NSArray<objc2_foundation::NSHTTPCookie>>| {
+            let found = cookies
+                .as_ref()
+                .iter()
+                .filter(|c| {
+                    let host = c.domain().to_string();
+                    let host = host.trim_start_matches('.');
+                    host == domain || host.ends_with(&format!(".{domain}"))
+                })
+                .map(|c| (c.name().to_string(), c.value().to_string()))
+                .collect();
+            reply.send(found);
+        });
+        jar.getAllCookies(&done);
+    })
+    .map_err(|e| e.to_string())?;
+    tokio::time::timeout(Duration::from_secs(10), rx)
+        .await
+        .map_err(|_| "o WebKit não respondeu".to_owned())?
+        .map_err(|_| "o WebKit não respondeu".to_owned())
+}
+
 /// Muta o áudio da página inteira (API privada `_setPageMuted:`; não é App Store).
 pub fn set_page_muted(webview: &Webview, muted: bool) {
     let _ = webview.with_webview(move |platform| unsafe {
