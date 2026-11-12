@@ -1,4 +1,21 @@
+<div align="center">
+
+<img src="docs/logo.png" alt="Ícone do PokeIdle Deck" width="160" height="160">
+
 # PokeIdle Deck
+
+**Até 4 contas do [PokeIdle](https://pokeidle.io) numa janela só, com recompra e lives no automático.**
+
+[![Baixar para macOS](https://img.shields.io/github/v/release/darlanhms/pokeidleDeck?label=baixar&logo=apple&color=f0a63a)](https://github.com/darlanhms/pokeidleDeck/releases/latest)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-2a2e37?logo=apple)
+![Apple Silicon e Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-2a2e37)
+[![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-2a2e37)](LICENSE)
+
+[Instalar](#instalar-no-macos) · [O que faz](#o-que-ele-faz) · [Primeiros passos](#primeiros-passos)
+
+</div>
+
+---
 
 Um app para macOS que joga o [PokeIdle](https://pokeidle.io) em até 4 contas ao mesmo tempo, numa janela só, e
 cuida sozinho do que é repetitivo: comprar itens, e assistir às lives da Twitch e da Kick para ganhar o bônus do
