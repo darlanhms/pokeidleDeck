@@ -104,9 +104,21 @@ unsafe fn hide_webview_brand(core: &ICoreWebView2) -> windows::core::Result<()> 
             "mobile": false,
         },
     });
-    let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|result, _| {
-        if let Err(err) = result {
-            eprintln!("[webview2] identificação do navegador: {}", err.message());
+    // A página pode ter começado a carregar antes de a troca valer (o 1º pedido sai com a marca, e a
+    // Twitch guarda a recusa): o que já não é about:blank nem o jogo recarrega com a identificação nova.
+    let page = core.clone();
+    let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, _| {
+        match result {
+            Err(err) => eprintln!("[webview2] identificação do navegador: {}", err.message()),
+            Ok(()) => {
+                let mut source = PWSTR::null();
+                if unsafe { page.Source(&mut source) }.is_ok() {
+                    let url = take_pwstr(source);
+                    if url.starts_with("http") && !url.contains("pokeidle.io") {
+                        let _ = unsafe { page.Reload() };
+                    }
+                }
+            }
         }
         Ok(())
     }));
