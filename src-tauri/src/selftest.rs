@@ -313,8 +313,31 @@ async fn shell(app: &AppHandle, report: &mut Report) {
     let hidden = native(app, ids[2]).await.map(|n| n.0);
     report.check(loaded && hidden == Some(false), format!("ligar de novo: o jogo volta ({hidden:?})"));
 
-    on_main(app, move |app| crate::accounts::rename(app, first, "  Main  ")).await;
-    report.check(view(app).panes[0].name == "Main", "renomear");
+    on_main(app, move |app| crate::prompt::rename(app, first, "Renomear conta")).await;
+    let mut field = Err(String::new());
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        if let Some(prompt) = app.get_webview_window("prompt") {
+            field = webkit::call_async(prompt.as_ref(), "return document.querySelector('#value').value", Duration::from_secs(5)).await;
+            if field.as_deref().is_ok_and(|v| v.contains("Conta 1")) {
+                break;
+            }
+        }
+    }
+    report.check(field.as_deref().is_ok_and(|v| v.contains("Conta 1")), format!("janela do nome abre com o nome atual ({field:?})"));
+    if let Some(prompt) = app.get_webview_window("prompt") {
+        let _ = webkit::call_async(
+            prompt.as_ref(),
+            "document.querySelector('#value').value = '  Main  '; document.querySelector('#form').requestSubmit(); return true",
+            Duration::from_secs(5),
+        )
+        .await;
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    report.check(
+        view(app).panes[0].name == "Main" && app.get_webview_window("prompt").is_none(),
+        format!("enviar o nome renomeia e fecha a janela ({})", view(app).panes[0].name),
+    );
     act(app, format!("acc:right:{first}")).await;
     let order: Vec<Uuid> = view(app).panes.iter().map(|p| p.id).collect();
     report.check(order[1] == first && order[0] == ids[1], "mover para a direita troca com a vizinha");

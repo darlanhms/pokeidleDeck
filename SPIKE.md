@@ -4,9 +4,8 @@
 
 ```
 npm install
-npm run tauri dev                       # deck normal + 3 players da Kick de teste
-DECK_KICK_CHANNEL=<canal> npm run tauri dev
-DECK_KICK=0 npm run tauri dev           # sem os players
+npm run tauri dev
+DECK_KICK_SPIKE=1 DECK_KICK_CHANNEL=<canal> npm run tauri dev   # + os 3 players de teste da Kick
 ```
 
 Autoteste das contas (usa uma pasta de dados separada; rode a fase 2 depois da 1, com a mesma pasta):
@@ -16,6 +15,8 @@ cd src-tauri
 DECK_SELFTEST=1 DECK_DATA_DIR=/tmp/deck-teste cargo run
 DECK_SELFTEST=2 DECK_DATA_DIR=/tmp/deck-teste cargo run
 ```
+
+Fase 2 (layouts, ampliar, zoom, desligar, nome, reordenar, remover/restaurar): `DECK_SELFTEST=shell`.
 
 O resultado fica em `$DECK_DATA_DIR/selftest-<fase>.txt`. O log da Kick fica em `kick-spike.log`, na pasta de
 dados (`~/Library/Application Support/com.darlanhermes.pokeidle-deck`).
