@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "central",
+  "description": "A Central das lives",
+  "windows": ["central"],
+  "permissions": [
+    "core:default",
+    "allow-central-state",
+    "allow-central-select",
+    "allow-central-choose",
+    "allow-central-redeem",
+    "allow-central-channel",
+    "allow-central-action"
+  ]
+}

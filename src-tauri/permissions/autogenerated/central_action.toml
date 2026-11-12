@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-central-action"
+description = "Enables the central_action command without any pre-configured scope."
+commands.allow = ["central_action"]
+
+[[permission]]
+identifier = "deny-central-action"
+description = "Denies the central_action command without any pre-configured scope."
+commands.deny = ["central_action"]

@@ -22,6 +22,11 @@ use uuid::Uuid;
 
 const KICK_JS: &str = include_str!("../scripts/kick-points.js");
 const TWITCH_JS: &str = include_str!("../scripts/twitch-points.js");
+const KICK_READ_JS: &str = include_str!("../scripts/kick-read.js");
+const TWITCH_READ_JS: &str = include_str!("../scripts/twitch-read.js");
+const KICK_REDEEM_JS: &str = include_str!("../scripts/kick-redeem.js");
+const TWITCH_REDEEM_JS: &str = include_str!("../scripts/twitch-redeem.js");
+const REWARDS: [Reward; 3] = [Reward::Xp, Reward::Capture, Reward::Lure];
 const KICK_EVERY: Duration = Duration::from_secs(5 * 60);
 const TWITCH_EVERY: Duration = Duration::from_secs(2 * 60);
 const FIRST_RUN: Duration = Duration::from_secs(60);
@@ -63,8 +68,37 @@ struct Redeemer {
     channels: HashMap<String, Channel>,
 }
 
+/// Um bônus do PokeIdle num canal, como o canal cobra.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RewardInfo {
+    pub kind: Reward,
+    #[serde(skip)]
+    id: String,
+    pub title: String,
+    #[serde(skip)]
+    prompt: Option<String>,
+    pub cost: i64,
+    /// "pausado no canal", "esgotado no canal", "em espera no canal".
+    pub blocked: Option<String>,
+}
+
+/// O saldo da conta num canal da lista (tocando ou não) e os bônus que o canal tem.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelInfo {
+    pub points: Option<i64>,
+    /// Dono do canal: pontos infinitos.
+    pub owner: bool,
+    pub rewards: Vec<RewardInfo>,
+    pub error: Option<String>,
+    #[serde(skip)]
+    channel_id: Option<String>,
+}
+
 #[derive(Default)]
 pub struct Points {
+    channels: Mutex<HashMap<(Uuid, Site, String), ChannelInfo>>,
     redeemers: Mutex<HashMap<(Uuid, Site), Redeemer>>,
     next: Mutex<HashMap<Site, Instant>>,
     log: Mutex<Vec<String>>,
@@ -107,6 +141,7 @@ pub fn start(app: &AppHandle) {
                 };
                 if due {
                     run(&app, site).await;
+                    scan(&app, site).await;
                 }
             }
         }
@@ -208,6 +243,172 @@ pub async fn probe_kick(app: &AppHandle, label: &str, channel: &str, token: &str
     let webview = app.get_webview(label)?;
     let json = webkit::call_async(&webview, &format!("return await (\n{script}\n);"), Duration::from_secs(30)).await.ok()?;
     serde_json::from_str::<String>(&json).ok().and_then(|inner| serde_json::from_str(&inner).ok())
+}
+
+/// O login da conta num site: (token, device), lidos dos cookies do data store dela.
+async fn credentials(app: &AppHandle, id: Uuid, site: Site) -> Option<(String, Option<String>)> {
+    let cookies = match site {
+        Site::Twitch => webkit::cookies(app, id, "twitch.tv").await,
+        Site::Kick => webkit::cookies(app, id, "kick.com").await,
+    }
+    .unwrap_or_default();
+    let find = |name: &str| cookies.iter().find(|(n, v)| n == name && !v.is_empty()).map(|(_, v)| v.clone());
+    match site {
+        Site::Twitch => Some((find("auth-token")?, find("unique_id"))),
+        Site::Kick => Some((percent_decode(&find("session_token")?), None)),
+    }
+}
+
+/// Uma página da conta naquele site para rodar os pedidos (qualquer live dele serve, para qualquer canal).
+fn host_page(app: &AppHandle, id: Uuid, site: Site) -> Option<tauri::Webview> {
+    lives::live_pages(app, id, site).into_iter().find_map(|(label, _)| app.get_webview(&label))
+}
+
+async fn eval_json(webview: &tauri::Webview, script: &str) -> Option<serde_json::Value> {
+    let json = webkit::call_async(webview, &format!("return await (\n{script}\n);"), Duration::from_secs(30)).await.ok()?;
+    serde_json::from_str::<String>(&json).ok().and_then(|inner| serde_json::from_str(&inner).ok())
+}
+
+fn read_script(site: Site, channel: &str, token: &str, device: Option<&str>) -> String {
+    let args = serde_json::json!({
+        "api": match site { Site::Twitch => "https://gql.twitch.tv", Site::Kick => "https://kick.com" },
+        "clientId": TWITCH_CLIENT_ID,
+        "token": token,
+        "device": device,
+        "channel": channel,
+        "words": REWARDS.map(word),
+    });
+    match site {
+        Site::Twitch => TWITCH_READ_JS,
+        Site::Kick => KICK_READ_JS,
+    }
+    .replace("__ARGS__", &args.to_string())
+}
+
+fn parse_read(value: Option<serde_json::Value>) -> ChannelInfo {
+    let Some(v) = value else {
+        return ChannelInfo { error: Some("a live não respondeu".into()), ..Default::default() };
+    };
+    if let Some(error) = v.get("error").and_then(|e| e.as_str()) {
+        return ChannelInfo { error: Some(error.to_owned()), ..Default::default() };
+    }
+    let rewards = v["rewards"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .zip(REWARDS)
+                .filter_map(|(r, kind)| {
+                    Some(RewardInfo {
+                        kind,
+                        id: r.get("id")?.as_str().map(String::from).unwrap_or_else(|| r["id"].to_string()),
+                        title: r.get("title")?.as_str()?.to_owned(),
+                        prompt: r.get("prompt").and_then(|p| p.as_str()).map(String::from),
+                        cost: r.get("cost")?.as_i64()?,
+                        blocked: r.get("blocked").and_then(|b| b.as_str()).map(String::from),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    ChannelInfo {
+        points: v.get("points").and_then(|p| p.as_i64()),
+        owner: v.get("owner").and_then(|o| o.as_bool()).unwrap_or(false),
+        rewards,
+        error: None,
+        channel_id: v.get("channelId").and_then(|c| c.as_str()).map(String::from),
+    }
+}
+
+/// Lê o saldo e os bônus de todos os canais da lista em cada conta com lives (tocando ou não).
+pub async fn scan(app: &AppHandle, site: Site) {
+    let (accounts, channels) = app.state::<Deck>().read(|c| {
+        let ids = c.lives_accounts();
+        let accounts: Vec<Uuid> = c.accounts.iter().filter(|a| ids.contains(&a.id) && !a.off).map(|a| a.id).collect();
+        (accounts, c.lives.channels(site).to_vec())
+    });
+    for id in accounts {
+        scan_account(app, id, site, &channels).await;
+    }
+    crate::central::emit(app);
+}
+
+pub async fn scan_account(app: &AppHandle, id: Uuid, site: Site, channels: &[String]) {
+    let Some(host) = host_page(app, id, site) else { return };
+    let Some((token, device)) = credentials(app, id, site).await else { return };
+    for channel in channels {
+        let info = parse_read(eval_json(&host, &read_script(site, channel, &token, device.as_deref())).await);
+        app.state::<Points>().channels.lock().unwrap().insert((id, site, channel.clone()), info);
+    }
+}
+
+pub fn channel_info(app: &AppHandle, id: Uuid, site: Site, channel: &str) -> Option<ChannelInfo> {
+    app.state::<Points>().channels.lock().unwrap().get(&(id, site, channel.to_owned())).cloned()
+}
+
+/// O baú pego por último naquela conta e site ("14:02"), para o resumo da central.
+pub fn last_chest(app: &AppHandle, id: Uuid) -> Option<String> {
+    let points = app.state::<Points>();
+    let redeemers = points.redeemers.lock().unwrap();
+    redeemers.get(&(id, Site::Twitch))?.channels.values().filter_map(|c| c.claimed_clock.clone()).max()
+}
+
+/// Resgata na mão um bônus num canal (tocando ou não). Devolve o texto do que aconteceu.
+pub async fn redeem(app: &AppHandle, account: &str, id: Uuid, site: Site, channel: &str, kind: Reward) -> Result<String, String> {
+    let info = channel_info(app, id, site, channel).ok_or("o saldo deste canal ainda não foi lido")?;
+    let reward = info.rewards.iter().find(|r| r.kind == kind).cloned().ok_or("o canal não tem este bônus")?;
+    if let Some(blocked) = &reward.blocked {
+        return Err(format!("bônus {blocked}"));
+    }
+    let host = host_page(app, id, site).ok_or("abra uma live deste site na conta para resgatar")?;
+    let (token, device) = credentials(app, id, site).await.ok_or_else(|| format!("entre na {} nesta conta", site.name()))?;
+    let args = serde_json::json!({
+        "api": match site { Site::Twitch => "https://gql.twitch.tv", Site::Kick => "https://kick.com" },
+        "clientId": TWITCH_CLIENT_ID,
+        "token": token,
+        "device": device,
+        "channel": channel,
+        "channelId": info.channel_id.clone().unwrap_or_else(|| channel.to_owned()),
+        "rewardId": reward.id,
+        "cost": reward.cost,
+        "prompt": reward.prompt,
+        "title": reward.title,
+    });
+    let script = match site {
+        Site::Twitch => TWITCH_REDEEM_JS,
+        Site::Kick => KICK_REDEEM_JS,
+    }
+    .replace("__ARGS__", &args.to_string());
+    let result = eval_json(&host, &script).await;
+    let outcome = match result.as_ref().map(|v| (v.get("redeemed").and_then(|r| r.as_bool()), v.get("error").and_then(|e| e.as_str()))) {
+        Some((Some(true), _)) => {
+            let left = info.points.map(|p| format!("; sobraram {}", p - reward.cost)).unwrap_or_default();
+            add_log(app, account, site, &format!("{channel}: resgatou {} na mão ({} pontos{left})", reward.title, reward.cost));
+            if let Some(redeemer) = app.state::<Points>().redeemers.lock().unwrap().get_mut(&(id, site)) {
+                if let Some(c) = redeemer.channels.get_mut(channel) {
+                    c.redeemed_at = Some(Instant::now());
+                    c.points = info.points.map(|p| p - reward.cost);
+                    c.cost = Some(reward.cost);
+                }
+            }
+            Ok(format!("{}: resgatei {} em {channel}", site.name(), reward.title))
+        }
+        Some((_, Some(error))) => {
+            add_log(app, account, site, &format!("{channel}: o resgate de {} na mão foi recusado (erro {error})", reward.title));
+            Err(format!("recusado: {error}"))
+        }
+        _ => Err("a live não respondeu".to_owned()),
+    };
+    scan_account(app, id, site, &[channel.to_owned()]).await;
+    crate::central::emit(app);
+    outcome
+}
+
+/// As últimas linhas do registro desta conta, a mais nova primeiro.
+pub fn recent_log(app: &AppHandle, account: &str, count: usize) -> Vec<String> {
+    let needle = format!("  {account} · ");
+    let points = app.state::<Points>();
+    let log = points.log.lock().unwrap();
+    log.iter().rev().filter(|l| l.contains(&needle)).take(count).cloned().collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -392,6 +593,7 @@ fn add_log(app: &AppHandle, account: &str, site: Site, text: &str) {
     }
     drop(log);
     let _ = app.emit_to("registro", "registro-line", line);
+    crate::central::emit(app);
 }
 
 /// O que o menu Lives mostra ao lado de cada live: "230/300 pontos, resgatou 14:05".
@@ -413,11 +615,6 @@ pub fn account_text(app: &AppHandle, id: Uuid, site: Site) -> Option<String> {
     redeemer.no_login.then(|| format!("pontos da {}: entre na {} nas lives desta conta", site.name(), site.name()))
 }
 
-pub fn today_count(app: &AppHandle) -> usize {
-    let (stamp, _) = clock();
-    let today = &stamp[..8];
-    app.state::<Points>().log.lock().unwrap().iter().filter(|l| l.starts_with(today)).count()
-}
 
 #[cfg(test)]
 mod tests {

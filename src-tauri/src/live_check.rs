@@ -137,14 +137,49 @@ pub fn parse_twitch(json: &str, channels: &[String]) -> Option<HashMap<String, O
     Some(channels.iter().map(|c| (c.clone(), Some(live.get(c).copied().unwrap_or(false)))).collect())
 }
 
-/// As primeiras da lista que estão no ar, até `slots`.
-pub fn pick(channels: &[String], live: &HashMap<String, Option<bool>>, slots: usize) -> Vec<String> {
-    channels
-        .iter()
-        .filter(|c| live.get(*c).copied().flatten() != Some(false))
-        .take(slots)
-        .cloned()
-        .collect()
+/// Por que um canal está numa vaga: escolhido, automático ou no lugar do escolhido que saiu do ar.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "of")]
+pub enum Why {
+    Chosen,
+    Auto,
+    StandIn(String),
+}
+
+/// O canal de cada vaga. Primeiro os escolhidos que estão no ar; depois cada vaga automática (ou de
+/// escolhido fora do ar) pega a primeira da lista no ar que ainda não está em outra vaga.
+pub fn assign(
+    channels: &[String],
+    live: &HashMap<String, Option<bool>>,
+    choices: &[crate::config::SlotChoice],
+    closed: &[String],
+) -> Vec<Option<(String, Why)>> {
+    use crate::config::SlotChoice;
+    let usable = |c: &String| !closed.contains(c) && live.get(c).copied().flatten() != Some(false);
+    let mut out: Vec<Option<(String, Why)>> = vec![None; choices.len()];
+    let mut used: Vec<String> = Vec::new();
+    for (slot, choice) in choices.iter().enumerate() {
+        if let SlotChoice::Channel(c) = choice {
+            if usable(c) && !used.contains(c) {
+                used.push(c.clone());
+                out[slot] = Some((c.clone(), Why::Chosen));
+            }
+        }
+    }
+    for (slot, choice) in choices.iter().enumerate() {
+        if out[slot].is_some() || *choice == SlotChoice::Off {
+            continue;
+        }
+        if let Some(c) = channels.iter().find(|c| usable(c) && !used.contains(c)) {
+            used.push(c.clone());
+            let why = match choice {
+                SlotChoice::Channel(chosen) => Why::StandIn(chosen.clone()),
+                _ => Why::Auto,
+            };
+            out[slot] = Some((c.clone(), why));
+        }
+    }
+    out
 }
 
 fn urlencode(text: &str) -> String {
@@ -176,10 +211,34 @@ mod tests {
     }
 
     #[test]
+    fn chosen_slot_falls_back_and_returns() {
+        use crate::config::SlotChoice::*;
+        let channels: Vec<String> = ["a", "b", "c", "d"].map(String::from).to_vec();
+        let choices = vec![Channel("c".into()), Auto];
+        let mut live: HashMap<String, Option<bool>> = channels.iter().map(|c| (c.clone(), Some(true))).collect();
+        let names = |v: Vec<Option<(String, Why)>>| v.into_iter().map(|s| s.map(|(c, w)| (c, w))).collect::<Vec<_>>();
+        assert_eq!(
+            names(assign(&channels, &live, &choices, &[])),
+            vec![Some(("c".into(), Why::Chosen)), Some(("a".into(), Why::Auto))]
+        );
+        live.insert("c".into(), Some(false));
+        assert_eq!(
+            names(assign(&channels, &live, &choices, &[])),
+            vec![Some(("a".into(), Why::StandIn("c".into()))), Some(("b".into(), Why::Auto))]
+        );
+        assert_eq!(
+            names(assign(&channels, &live, &[Off, Auto], &["a".into()])),
+            vec![None, Some(("b".into(), Why::Auto))]
+        );
+    }
+
+    #[test]
     fn unknown_counts_as_live_and_order_wins() {
+        use crate::config::SlotChoice::Auto;
         let channels: Vec<String> = ["a", "b", "c"].map(String::from).to_vec();
         let live = HashMap::from([("a".to_owned(), Some(false)), ("b".to_owned(), None)]);
-        assert_eq!(pick(&channels, &live, 2), vec!["b", "c"]);
+        let got: Vec<String> = assign(&channels, &live, &[Auto, Auto], &[]).into_iter().flatten().map(|(c, _)| c).collect();
+        assert_eq!(got, vec!["b", "c"]);
     }
 }
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-central-select"
+description = "Enables the central_select command without any pre-configured scope."
+commands.allow = ["central_select"]
+
+[[permission]]
+identifier = "deny-central-select"
+description = "Denies the central_select command without any pre-configured scope."
+commands.deny = ["central_select"]

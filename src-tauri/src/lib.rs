@@ -3,6 +3,7 @@ compile_error!("O PokeIdle Deck só roda no macOS 14+.");
 
 mod accounts;
 mod automation;
+mod central;
 mod config;
 mod deck;
 mod kick;
@@ -27,6 +28,7 @@ pub fn run() {
         .manage(automation::Automation::default())
         .manage(lives::Lives::default())
         .manage(points::Points::default())
+        .manage(central::Central::default())
         .invoke_handler(tauri::generate_handler![
             menus::deck_state,
             menus::deck_action,
@@ -35,7 +37,6 @@ pub fn run() {
             menus::account_menu,
             menus::page_key,
             menus::ultra_menu,
-            menus::lives_menu,
             lives::lives_ui_state,
             lives::lives_ui_select,
             lives::lives_ui_park,
@@ -44,6 +45,12 @@ pub fn run() {
             lives_config::lives_config_get,
             lives_config::lives_config_set,
             points::registro_get,
+            central::central_state,
+            central::central_select,
+            central::central_choose,
+            central::central_redeem,
+            central::central_channel,
+            central::central_action,
             points::registro_open_file,
             automation::account_click,
             automation::restock_get,

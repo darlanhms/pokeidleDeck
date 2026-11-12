@@ -2,7 +2,7 @@
 //! automático de cada conta e o baú da Twitch.
 
 use crate::{
-    config::{parse_channels, Reward, Site, MAX_LIVE_SLOTS},
+    config::{parse_channels, Reward, MAX_LIVE_SLOTS},
     deck::Deck,
     lives,
 };
@@ -80,10 +80,7 @@ pub fn lives_config_set(app: AppHandle, window: tauri::WebviewWindow, form: Live
         c.lives.twitch_slots = form.twitch_slots.min(MAX_LIVE_SLOTS);
         c.lives.kick_slots = form.kick_slots.min(MAX_LIVE_SLOTS);
         c.lives.claim_chest = form.claim_chest;
-        let (twitch, kick) = (c.lives.slots(Site::Twitch), c.lives.slots(Site::Kick));
         for account in &mut c.accounts {
-            account.lives.twitch.fit(twitch);
-            account.lives.kick.fit(kick);
             if let Some(choice) = form.accounts.iter().find(|r| r.id == account.id) {
                 account.lives.redeem_twitch = choice.redeem_twitch;
                 account.lives.redeem_kick = choice.redeem_kick;

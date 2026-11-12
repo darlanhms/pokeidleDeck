@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-central-channel"
+description = "Enables the central_channel command without any pre-configured scope."
+commands.allow = ["central_channel"]
+
+[[permission]]
+identifier = "deny-central-channel"
+description = "Denies the central_channel command without any pre-configured scope."
+commands.deny = ["central_channel"]

@@ -560,6 +560,46 @@ async fn lives_phase(app: &AppHandle, report: &mut Report) {
             report.check(ad.as_deref() == Ok("\"bloqueado\""), format!("anúncios bloqueados nas lives ({ad:?})"));
         }
     }
+    {
+        use crate::config::SlotChoice;
+        let offline = ["yetz", "surskity"]
+            .into_iter()
+            .find(|c| crate::lives::live_status(app, Site::Kick, c) == Some(false))
+            .map(String::from);
+        if let (Some(offline), Some(playing)) = (offline, kick.clone()) {
+            let chosen = offline.clone();
+            on_main(app, move |app| crate::lives::choose_slot(app, id, Site::Kick, 0, SlotChoice::Channel(chosen))).await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let slots = crate::lives::slot_views(app, id, Site::Kick);
+            let first = slots.first().cloned();
+            report.check(
+                first.as_ref().is_some_and(|s| s.channel.as_deref() == Some(playing.as_str()) && s.why == Some(crate::live_check::Why::StandIn(offline.clone()))),
+                format!("vaga escolhida fora do ar: {playing} toca no lugar de {offline} ({first:?})"),
+            );
+            on_main(app, move |app| crate::lives::choose_slot(app, id, Site::Kick, 0, SlotChoice::Auto)).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let back = crate::lives::slot_views(app, id, Site::Kick).first().and_then(|s| s.channel.clone());
+            report.check(back.as_deref() == Some(playing.as_str()), format!("vaga de volta no Automático ({back:?})"));
+        }
+    }
+    on_main(app, move |app| crate::central::open(app, Some(id))).await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let central = serde_json::to_value(crate::central::view(app)).unwrap_or_default();
+    let kick_rows = central["account"]["sites"][1]["rows"].as_array().cloned().unwrap_or_default();
+    report.check(
+        kick_rows.len() == 3 && kick_rows.iter().any(|r| r["state"] == "playing"),
+        format!("a central lista todos os canais da Kick com o estado ({})", kick_rows.iter().map(|r| format!("{}={}", r["channel"], r["state"])).collect::<Vec<_>>().join(", ")),
+    );
+    let central_number = on_main(app, |app| {
+        let window = app.get_webview_window("central")?;
+        let pointer = window.ns_window().ok()?;
+        Some(unsafe { (*(pointer as *const objc2_app_kit::NSWindow)).windowNumber() })
+    })
+    .await;
+    if let Some(number) = central_number {
+        let shot = deck::data_dir(app).join("central.png");
+        let _ = std::process::Command::new("screencapture").args(["-x", "-o", "-l", &number.to_string()]).arg(&shot).status();
+    }
     act(app, "lives:show".into()).await;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let number = on_main(app, move |app| {

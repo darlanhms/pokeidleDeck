@@ -5,7 +5,7 @@
 use crate::{
     accounts::USER_AGENT,
     automation,
-    config::{Site, LiveLimit},
+    config::{LiveLimit, Site, SlotChoice},
     deck::{self, Deck},
     live_check, webkit,
 };
@@ -60,6 +60,7 @@ struct Slot {
     retries: u32,
     reloads: u32,
     playing: Option<bool>,
+    why: Option<live_check::Why>,
 }
 
 #[derive(Clone, Debug)]
@@ -210,6 +211,7 @@ pub fn open(app: &AppHandle, id: Uuid) {
             retries: 0,
             reloads: 0,
             playing: None,
+            why: None,
         });
     }
     app.state::<Lives>().windows.lock().unwrap().insert(
@@ -396,13 +398,9 @@ fn navigate(app: &AppHandle, slot: &mut Slot, url: Option<String>, channel: Opti
 
 /// Põe nas vagas de cada site as lives que devem tocar agora. Uma live que continua não recarrega.
 fn apply(app: &AppHandle, id: Uuid) {
-    let Some((limits, channels, slots)) = app.state::<Deck>().read(|c| {
+    let Some((limits, channels)) = app.state::<Deck>().read(|c| {
         let account = c.accounts.iter().find(|a| a.id == id)?;
-        Some((
-            account.lives.clone(),
-            [c.lives.twitch_channels.clone(), c.lives.kick_channels.clone()],
-            [c.lives.slots(Site::Twitch), c.lives.slots(Site::Kick)],
-        ))
+        Some((account.lives.clone(), [c.lives.twitch_channels.clone(), c.lives.kick_channels.clone()]))
     }) else {
         return;
     };
@@ -416,29 +414,24 @@ fn apply(app: &AppHandle, id: Uuid) {
         if !answered.contains(&site) && !no_login {
             continue;
         }
+        let count = state.slots.iter().filter(|s| s.site == Some(site)).count();
+        let limit = limits.limit(site);
         let wanted = if no_login {
-            Vec::new()
+            vec![None; count]
         } else {
-            let limit = limits.limit(site);
-            let open: Vec<String> = channels[index].iter().filter(|c| !limit.closed.contains(c)).cloned().collect();
-            let status: HashMap<String, Option<bool>> = open
+            let status: HashMap<String, Option<bool>> = channels[index]
                 .iter()
                 .map(|c| (c.clone(), live.get(&(site, c.clone())).copied().flatten()))
                 .collect();
-            live_check::pick(&open, &status, limit.slots_of(slots[index]))
+            live_check::assign(&channels[index], &status, &limit.choices(count), &limit.closed)
         };
-        for slot in state.slots.iter_mut().filter(|s| s.site == Some(site)) {
-            if slot.channel.as_ref().is_some_and(|c| !wanted.contains(c)) {
-                navigate(app, slot, None, None);
-            }
-        }
-        for channel in &wanted {
-            let present = state.slots.iter().any(|s| s.site == Some(site) && s.channel.as_ref() == Some(channel));
-            if present {
-                continue;
-            }
-            if let Some(slot) = state.slots.iter_mut().find(|s| s.site == Some(site) && s.channel.is_none()) {
-                navigate(app, slot, Some(player_url(site, channel)), Some(channel.clone()));
+        // A vaga N é a N-ésima página do site na janela; um canal que continua na vaga não recarrega.
+        for (slot, target) in state.slots.iter_mut().filter(|s| s.site == Some(site)).zip(wanted) {
+            let channel = target.as_ref().map(|(c, _)| c.clone());
+            slot.why = target.map(|(_, why)| why);
+            if slot.channel != channel {
+                let url = channel.as_ref().map(|c| player_url(site, c));
+                navigate(app, slot, url, channel);
             }
         }
     }
@@ -626,6 +619,55 @@ async fn watch_loop(app: AppHandle) {
     }
 }
 
+/// Uma vaga de live da conta, para a central: o canal que toca, por quê, e se o vídeo anda.
+#[derive(Clone, Debug)]
+pub struct SlotView {
+    pub channel: Option<String>,
+    pub why: Option<live_check::Why>,
+    pub playing: Option<bool>,
+}
+
+pub fn slot_views(app: &AppHandle, id: Uuid, site: Site) -> Vec<SlotView> {
+    let lives = app.state::<Lives>();
+    let windows = lives.windows.lock().unwrap();
+    windows
+        .get(&id)
+        .map(|w| {
+            w.slots
+                .iter()
+                .filter(|s| s.site == Some(site))
+                .map(|s| SlotView { channel: s.channel.clone(), why: s.why.clone(), playing: s.playing })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `Some(true)` no ar, `Some(false)` offline, `None` ainda não se sabe.
+pub fn live_status(app: &AppHandle, site: Site, channel: &str) -> Option<bool> {
+    app.state::<Lives>().live.lock().unwrap().get(&(site, channel.to_owned())).copied().flatten()
+}
+
+/// O login da conta em cada site, como a última conferência viu (`None`: ainda não conferiu).
+pub fn login(app: &AppHandle, id: Uuid, site: Site) -> Option<bool> {
+    let lives = app.state::<Lives>();
+    let windows = lives.windows.lock().unwrap();
+    let state = windows.get(&id)?;
+    match site {
+        Site::Twitch => state.twitch_login,
+        Site::Kick => state.kick_login,
+    }
+}
+
+/// Mostra a janela de lives na aba de entrar naquele site.
+pub fn reveal_login(app: &AppHandle, id: Uuid, site: Site) {
+    if let Some(state) = app.state::<Lives>().windows.lock().unwrap().get_mut(&id) {
+        if let Some(index) = state.slots.iter().position(|s| s.login == Some(site) && s.url.is_some()) {
+            state.selected = index;
+        }
+    }
+    reveal(app, id, 0);
+}
+
 /// (site, canal, endereço, tocando) de cada vaga da janela da conta, para o autoteste.
 pub fn snapshot(app: &AppHandle, id: Uuid) -> Vec<(Option<Site>, Option<String>, Option<String>, Option<bool>)> {
     let lives = app.state::<Lives>();
@@ -788,9 +830,9 @@ pub fn lives_ui_full_page(app: AppHandle, webview: tauri::Webview) {
 
 // ---------- Fechar e abrir lives numa conta ----------
 
+/// Tira um canal da lista desta conta (ou esvazia todas as vagas do site, com `None`).
 pub fn close_live(app: &AppHandle, id: Uuid, site: Site, channel: Option<String>) {
-    let open = open_channels(app, id, site);
-    let max = app.state::<Deck>().read(|c| c.lives.slots(site));
+    let slots = app.state::<Deck>().read(|c| c.lives.slots(site));
     app.state::<Deck>().update(|c| {
         let Some(account) = c.account_mut(id) else { return };
         let limit = account.lives.limit_mut(site);
@@ -799,63 +841,61 @@ pub fn close_live(app: &AppHandle, id: Uuid, site: Site, channel: Option<String>
                 if !limit.closed.contains(ch) {
                     limit.closed.push(ch.clone());
                 }
-                limit.slots = Some(limit.slots_of(max).saturating_sub(1));
             }
-            None => {
-                for ch in &open {
-                    if !limit.closed.contains(ch) {
-                        limit.closed.push(ch.clone());
-                    }
-                }
-                limit.slots = Some(0);
-            }
+            None => (0..slots).for_each(|i| limit.set_choice(i, SlotChoice::Off)),
         }
     });
     apply(app, id);
     let text = match channel {
-        Some(ch) => format!("{}: fechei a live de {ch}", site.name()),
-        None => format!("{}: fechei todas as lives", site.name()),
+        Some(ch) => format!("{}: {ch} saiu da lista desta conta", site.name()),
+        None => format!("{}: todas as vagas vazias nesta conta", site.name()),
     };
     automation::note(app, id, text);
 }
 
 pub fn reopen_live(app: &AppHandle, id: Uuid, site: Site, channel: Option<String>) {
-    let max = app.state::<Deck>().read(|c| c.lives.slots(site));
     app.state::<Deck>().update(|c| {
         let Some(account) = c.account_mut(id) else { return };
         let limit = account.lives.limit_mut(site);
         match &channel {
-            Some(ch) => {
-                limit.closed.retain(|c| c != ch);
-                limit.slots = Some(limit.slots_of(max) + 1);
-                limit.fit(max);
+            Some(ch) => limit.closed.retain(|c| c != ch),
+            None => {
+                limit.closed.clear();
+                for choice in limit.chosen.iter_mut().filter(|c| **c == SlotChoice::Off) {
+                    *choice = SlotChoice::Auto;
+                }
             }
-            None => *limit = LiveLimit::default(),
         }
     });
     app.state::<Lives>().check_now.store(true, Ordering::Relaxed);
     apply(app, id);
     let text = match channel {
-        Some(ch) => format!("{}: {ch} volta a abrir (se estiver no ar)", site.name()),
+        Some(ch) => format!("{}: {ch} volta para a lista (toca se estiver no ar)", site.name()),
         None => format!("{}: as lives voltam a abrir", site.name()),
     };
     automation::note(app, id, text);
 }
 
-pub fn open_channels(app: &AppHandle, id: Uuid, site: Site) -> Vec<String> {
-    let lives = app.state::<Lives>();
-    let windows = lives.windows.lock().unwrap();
-    let Some(state) = windows.get(&id) else { return Vec::new() };
-    let order = app.state::<Deck>().read(|c| c.lives.channels(site).to_vec());
-    let mut open: Vec<String> = state
-        .slots
-        .iter()
-        .filter(|s| s.site == Some(site))
-        .filter_map(|s| s.channel.clone())
-        .collect();
-    open.sort_by_key(|c| order.iter().position(|o| o == c).unwrap_or(usize::MAX));
-    open
+/// O que toca na vaga `slot` do site nesta conta (a escolha vale na hora).
+pub fn choose_slot(app: &AppHandle, id: Uuid, site: Site, slot: usize, choice: SlotChoice) {
+    app.state::<Deck>().update(|c| {
+        if let Some(account) = c.account_mut(id) {
+            let limit = account.lives.limit_mut(site);
+            // Um canal escolhido numa vaga sai das outras, e volta para a lista se estava fechado.
+            if let SlotChoice::Channel(ch) = &choice {
+                limit.closed.retain(|c| c != ch);
+                for other in limit.chosen.iter_mut() {
+                    if *other == SlotChoice::Channel(ch.clone()) {
+                        *other = SlotChoice::Auto;
+                    }
+                }
+            }
+            limit.set_choice(slot, choice);
+        }
+    });
+    apply(app, id);
 }
+
 
 /// Liga ou desliga as lives numa conta (o "Lives da Twitch/Kick nesta conta").
 pub fn toggle_account(app: &AppHandle, id: Uuid) {
@@ -921,7 +961,7 @@ fn site_summary(
             })
             .collect();
         format!("{name} no ar: {}", lives.join(", "))
-    } else if limit.limited() && limit.slots_of(max) == 0 {
+    } else if (0..max).all(|i| limit.choice(i) == SlotChoice::Off) {
         format!("{name}: todas fechadas nesta conta")
     } else if !answered {
         format!("{name}: conferindo quem está no ar…")
@@ -963,33 +1003,61 @@ pub fn summary(app: &AppHandle, id: Uuid) -> Option<String> {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AccountLivesStatus {
+    id: Uuid,
+    playing: usize,
+    redeemable: usize,
+    /// Falta login num site que tem vagas.
+    warn: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LivesStatus {
     on: bool,
     playing: usize,
     open: usize,
+    redeemable: usize,
     text: String,
+    accounts: Vec<AccountLivesStatus>,
 }
 
 pub fn emit_summary(app: &AppHandle) {
-    let accounts = app.state::<Deck>().accounts();
-    let lives = app.state::<Lives>();
-    let (playing, open) = {
-        let windows = lives.windows.lock().unwrap();
-        let slots = windows.values().flat_map(|w| w.slots.iter()).filter(|s| s.site.is_some() && s.channel.is_some());
-        let all: Vec<&Slot> = slots.collect();
-        (all.iter().filter(|s| s.playing == Some(true)).count(), all.len())
-    };
-    let parts: Vec<String> = accounts
-        .iter()
-        .filter_map(|a| summary(app, a.id).map(|s| format!("{}: {s}", a.name)))
+    let open_ids: Vec<Uuid> = app.state::<Lives>().windows.lock().unwrap().keys().copied().collect();
+    let ids: Vec<Uuid> = app.state::<Deck>().accounts().iter().map(|a| a.id).filter(|id| open_ids.contains(id)).collect();
+    let mut per_site = [(0usize, 0usize); 2];
+    let mut accounts = Vec::new();
+    for id in &ids {
+        for (index, site) in [Site::Twitch, Site::Kick].into_iter().enumerate() {
+            let slots = slot_views(app, *id, site);
+            per_site[index].0 += slots.iter().filter(|s| s.channel.is_some()).count();
+            per_site[index].1 += slots.len();
+        }
+        let (playing, _, redeemable, warn) = crate::central::account_counts(app, *id);
+        accounts.push(AccountLivesStatus { id: *id, playing, redeemable, warn });
+    }
+    let playing: usize = per_site.iter().map(|s| s.0).sum();
+    let open: usize = per_site.iter().map(|s| s.1).sum();
+    let redeemable: usize = accounts.iter().map(|a| a.redeemable).sum();
+    let mut parts: Vec<String> = [Site::Twitch, Site::Kick]
+        .into_iter()
+        .zip(per_site)
+        .filter(|(_, (_, total))| *total > 0)
+        .map(|(site, (on, total))| format!("{} {on}/{total}", site.name()))
         .collect();
-    let status = LivesStatus {
-        on: !parts.is_empty(),
-        playing,
-        open,
-        text: if parts.is_empty() { "Lives desligadas".to_owned() } else { format!("Lives · {}", parts.join(" · ")) },
+    let text = if ids.is_empty() {
+        "Lives desligadas".to_owned()
+    } else {
+        let mut text = format!("{} tocando", parts.join(" · "));
+        if redeemable > 0 {
+            text.push_str(&format!(" · {redeemable} {} para resgatar", if redeemable == 1 { "canal pronto" } else { "canais prontos" }));
+        }
+        text
     };
+    parts.clear();
+    let status = LivesStatus { on: !ids.is_empty(), playing, open, redeemable, text, accounts };
     let _ = app.emit_to("deck", "lives", status);
+    crate::central::emit(app);
 }
 
 #[derive(Clone, Serialize)]

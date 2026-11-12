@@ -213,33 +213,6 @@ pub fn account_menu(app: AppHandle, window: Window, id: Uuid) -> Result<(), Stri
         .read(|c| c.layout == LayoutMode::Focus && c.focused == Some(id));
     let entry = |action: &str, text: &str, enabled: bool| item(&app, format!("acc:{action}:{id}"), text, enabled, None);
     let lives_on = app.state::<Deck>().read(|c| c.lives_accounts().contains(&id));
-    let lives_submenu = || -> tauri::Result<Submenu<Wry>> {
-        let submenu = Submenu::new(&app, "Fechar ou abrir lives", lives::has_window(&app, id))?;
-        for (index, site) in [Site::Kick, Site::Twitch].into_iter().enumerate() {
-            if index > 0 {
-                submenu.append(&PredefinedMenuItem::separator(&app)?)?;
-            }
-            submenu.append(&item(&app, "lives:header", &format!("Lives da {}:", site.name()), false, None)?)?;
-            let open = lives::open_channels(&app, id, site);
-            let site_key = site.name().to_lowercase();
-            for channel in &open {
-                submenu.append(&item(&app, format!("lives:close:{id}:{site_key}:{channel}"), &format!("Fechar a live de {channel}"), true, None)?)?;
-            }
-            if !open.is_empty() {
-                submenu.append(&item(&app, format!("lives:close:{id}:{site_key}:*"), &format!("Fechar todas (nenhuma live da {} nesta conta)", site.name()), true, None)?)?;
-            }
-            let limit = account.lives.limit(site).clone();
-            if limit.limited() {
-                for channel in &limit.closed {
-                    submenu.append(&item(&app, format!("lives:reopen:{id}:{site_key}:{channel}"), &format!("Abrir de novo a live de {channel}"), true, None)?)?;
-                }
-                submenu.append(&item(&app, format!("lives:reopen:{id}:{site_key}:*"), "Abrir todas de novo", true, None)?)?;
-            } else if open.is_empty() {
-                submenu.append(&item(&app, "lives:none", &format!("Nenhuma live da {} aberta nesta conta agora", site.name()), false, None)?)?;
-            }
-        }
-        Ok(submenu)
-    };
     let swap_submenu = || -> tauri::Result<Submenu<Wry>> {
         let submenu = Submenu::new(&app, "Trocar de lugar com", accounts.len() > 1)?;
         for (position, other) in accounts.iter().enumerate().filter(|(_, a)| a.id != id) {
@@ -263,7 +236,7 @@ pub fn account_menu(app: AppHandle, window: Window, id: Uuid) -> Result<(), Stri
                 &entry("rename", "Renomear…", true)?,
                 &entry("restock", "Recompra…", true)?,
                 &CheckMenuItem::with_id(&app, format!("lives:toggle:{id}"), "Lives da Twitch/Kick nesta conta", true, lives_on, None::<&str>)?,
-                &lives_submenu()?,
+                &entry("lives", "Lives desta conta…", lives_on)?,
                 &entry("power", if account.off { "Ligar esta conta" } else { "Desligar esta conta (fica no deck, sem rodar nada)" }, true)?,
                 &PredefinedMenuItem::separator(&app)?,
                 &swap_submenu()?,
@@ -313,6 +286,7 @@ pub fn dispatch(app: &AppHandle, action: &str) {
                 }
                 "inspect" => accounts::inspect(app, id),
                 "restock" => automation::open_restock(app, id),
+                "lives" => crate::central::open(app, Some(id)),
                 "remove" => accounts::confirm_remove(app, id),
                 _ => {}
             }
@@ -355,6 +329,7 @@ pub fn dispatch(app: &AppHandle, action: &str) {
             deck::refresh(app);
         }
         (Some("deck"), Some("fullscreen")) => toggle_fullscreen(app),
+        (Some("deck"), Some("lives")) => crate::central::open(app, None),
         (Some("deck"), Some("focus")) => {
             let index = rest.and_then(|r| r.parse::<usize>().ok()).and_then(|n| n.checked_sub(1));
             let id = index.and_then(|i| deck.read(|c| c.accounts.get(i).map(|a| a.id)));
@@ -389,43 +364,6 @@ fn lives_action(app: &AppHandle, verb: &str, rest: &str) {
         ("log", _, _) => crate::points::open_log_window(app),
         _ => {}
     }
-}
-
-#[tauri::command]
-pub fn lives_menu(app: AppHandle, window: Window, x: f64, y: f64) -> Result<(), String> {
-    let accounts = app.state::<Deck>().accounts();
-    let on = app.state::<Deck>().read(|c| c.lives_accounts());
-    let build = || -> tauri::Result<Menu<Wry>> {
-        let menu = Menu::new(&app)?;
-        menu.append(&item(&app, "lives:header", "Marque a conta vinculada à sua Twitch/Kick (a main):", false, None)?)?;
-        for account in &accounts {
-            let detail = if account.off {
-                " — conta desligada (as lives voltam ao ligar)".to_owned()
-            } else {
-                lives::summary(&app, account.id).map(|s| format!(" — {s}")).unwrap_or_default()
-            };
-            menu.append(&CheckMenuItem::with_id(
-                &app,
-                format!("lives:toggle:{}", account.id),
-                format!("{}{detail}", account.name),
-                true,
-                on.contains(&account.id),
-                None::<&str>,
-            )?)?;
-        }
-        menu.append(&PredefinedMenuItem::separator(&app)?)?;
-        let any = accounts.iter().any(|a| lives::has_window(&app, a.id));
-        for account in accounts.iter().filter(|a| lives::has_window(&app, a.id)) {
-            menu.append(&item(&app, format!("lives:points:{}", account.id), &format!("Resgatar pontos na mão: {}", account.name), true, None)?)?;
-        }
-        menu.append(&item(&app, "lives:show", "Mostrar as lives (para entrar na Twitch/Kick ou ver os players)", any, None)?)?;
-        let today = crate::points::today_count(&app);
-        menu.append(&item(&app, "lives:log", &format!("Registro dos resgates… ({today} hoje)"), true, None)?)?;
-        menu.append(&item(&app, "lives:config", "Config…", true, None)?)?;
-        Ok(menu)
-    };
-    let menu = build().map_err(|e| e.to_string())?;
-    popup_at(&app, &window, &menu, x, y)
 }
 
 pub fn toggle_fullscreen(app: &AppHandle) {

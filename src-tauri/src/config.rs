@@ -47,29 +47,41 @@ pub enum Reward {
     Lure,
 }
 
-/// O que o "fechar a live" de uma conta mudou num site: as vagas a menos e os canais fechados.
+/// O que toca numa vaga de live da conta.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "channel")]
+pub enum SlotChoice {
+    /// A primeira da lista que estiver no ar.
+    #[default]
+    Auto,
+    /// Este canal; fora do ar, a vaga toca a primeira da lista no ar e volta quando ele voltar.
+    Channel(String),
+    /// Vaga vazia.
+    Off,
+}
+
+/// As escolhas da conta num site: o que toca em cada vaga e os canais que ela tirou da lista.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LiveLimit {
-    /// Quantas lives do site abrem nesta conta; `None` é o limite do deck. Cada live fechada leva a
-    /// vaga junto, para a conferência seguinte não abrir outra no lugar.
-    pub slots: Option<usize>,
+    pub chosen: Vec<SlotChoice>,
     pub closed: Vec<String>,
 }
 
 impl LiveLimit {
-    pub fn slots_of(&self, max: usize) -> usize {
-        self.slots.unwrap_or(max).min(max)
+    pub fn choice(&self, slot: usize) -> SlotChoice {
+        self.chosen.get(slot).cloned().unwrap_or_default()
     }
 
-    pub fn limited(&self) -> bool {
-        self.slots.is_some() || !self.closed.is_empty()
+    pub fn choices(&self, slots: usize) -> Vec<SlotChoice> {
+        (0..slots).map(|i| self.choice(i)).collect()
     }
 
-    pub fn fit(&mut self, max: usize) {
-        if self.slots.is_some_and(|s| s >= max) {
-            self.slots = None;
+    pub fn set_choice(&mut self, slot: usize, choice: SlotChoice) {
+        if self.chosen.len() <= slot {
+            self.chosen.resize(slot + 1, SlotChoice::Auto);
         }
+        self.chosen[slot] = choice;
     }
 }
 
@@ -496,13 +508,12 @@ mod tests {
     }
 
     #[test]
-    fn closed_lives_take_their_slot() {
-        let mut limit = LiveLimit { slots: Some(1), closed: vec!["x".into()] };
-        assert_eq!(limit.slots_of(2), 1);
-        assert!(limit.limited());
-        limit.slots = Some(5);
-        limit.fit(2);
-        assert_eq!(limit.slots, None);
+    fn slot_choices_default_to_auto() {
+        let mut limit = LiveLimit::default();
+        limit.set_choice(1, SlotChoice::Channel("rodil".into()));
+        assert_eq!(limit.choices(3), vec![SlotChoice::Auto, SlotChoice::Channel("rodil".into()), SlotChoice::Auto]);
+        let json = serde_json::to_string(&limit.chosen).unwrap();
+        assert_eq!(json, r#"[{"kind":"auto"},{"kind":"channel","channel":"rodil"}]"#);
     }
 
     #[test]

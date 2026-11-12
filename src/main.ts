@@ -41,7 +41,14 @@ type Report = {
   restock: Restock | null;
 };
 type Memory = { game: number; lives: number; other: number };
-type LivesStatus = { on: boolean; playing: number; open: number; text: string };
+type LivesStatus = {
+  on: boolean;
+  playing: number;
+  open: number;
+  redeemable: number;
+  text: string;
+  accounts: { id: string; playing: number; redeemable: number; warn: boolean }[];
+};
 type KickSnapshot = {
   channel: string;
   elapsedSecs: number;
@@ -59,6 +66,7 @@ const reports = new Map<string, Report>();
 const notes = new Map<string, { text: string; until: number }>();
 const compact = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
 let view: DeckView | null = null;
+let livesStatus: LivesStatus | null = null;
 let dragging: { id: string; x: number; y: number; active: boolean } | null = null;
 
 const action = (name: string) => invoke("deck_action", { action: name });
@@ -205,6 +213,14 @@ function renderHeader(v: DeckView, pane: Pane, r: Rect): HTMLElement {
     const chips = el("div", { className: "chips" });
     if (!narrow && coins) chips.append(el("span", { className: "chip gold", title: "Ouro da conta" }, iconNode(icons.coins), coins));
     if (!narrow && pane.startedAt) chips.append(el("span", { className: "chip muted", title: "Rodando há" }, iconNode(icons.clock), uptime(pane.startedAt)));
+    const lives = livesStatus?.accounts.find((a) => a.id === pane.id);
+    if (lives) {
+      const extra = lives.redeemable > 0 ? ` · ${lives.redeemable} ${lives.redeemable === 1 ? "resgate" : "resgates"}` : lives.warn ? " · entrar" : "";
+      const title = `Lives: ${lives.playing} tocando${lives.redeemable > 0 ? `; ${lives.redeemable} canais prontos para resgatar` : ""}${lives.warn ? "; falta entrar na Twitch ou na Kick" : ""}. Clique para abrir a central das lives.`;
+      const chip = actionButton(icons.tv, title, () => action(`acc:lives:${pane.id}`), `chip ${lives.redeemable > 0 ? "accent" : lives.warn ? "waiting" : ""} ${narrow ? "icon-only" : ""}`);
+      if (!narrow) chip.append(`Lives ▶${lives.playing}${extra}`);
+      chips.append(chip);
+    }
     const restock = restockState(pane);
     const cart = actionButton(icons.cart, restock.title, () => action(`acc:restock:${pane.id}`), `chip ${restock.className} ${narrow ? "icon-only" : ""}`);
     if (!narrow) cart.append(restock.label);
@@ -383,8 +399,7 @@ $("#add").prepend(iconNode(icons.plus));
 $("#add").addEventListener("click", () => action("deck:add"));
 $("#ultra-menu").append(iconNode(icons.chevron));
 $("#deck-more").append(iconNode(icons.more));
-$("#lives").append(iconNode(icons.chevron));
-$("#lives").addEventListener("click", (e) => popupBelow("lives_menu", e.currentTarget as HTMLElement));
+$("#lives").addEventListener("click", () => action("deck:lives"));
 $("#echo").addEventListener("click", () => action("deck:echo"));
 $("#ultra").addEventListener("click", () => action("deck:ultra"));
 $("#ultra-menu").addEventListener("click", (e) => popupBelow("ultra_menu", e.currentTarget as HTMLElement));
@@ -416,16 +431,22 @@ listen<{ id: string; report: Report }>("report", (e) => {
 listen<Memory>("memory", (e) => renderMemory(e.payload));
 listen<LivesStatus>("lives", (e) => {
   const s = e.payload;
+  const changed = JSON.stringify(livesStatus?.accounts) !== JSON.stringify(s.accounts);
+  livesStatus = s;
   const pill = $("#lives");
   pill.classList.toggle("on", s.on);
-  pill.childNodes[1].textContent = s.on ? `Lives ${s.playing}/${s.open}` : "Lives";
+  const label = s.on ? `Lives ${s.playing}/${s.open}` : "Lives";
+  const badge = s.redeemable > 0 ? el("span", { className: "pill-badge", textContent: `${s.redeemable} para resgatar` }) : "";
+  pill.replaceChildren(el("span", { className: "state" }), label, badge);
   pill.title = s.on
-    ? `${s.playing} de ${s.open} lives tocando. Clique para escolher as contas, mostrar as lives ou mudar a config.`
-    : "Lives da Twitch e da Kick tocando em segundo plano, juntando os pontos dos canais (o bônus das lives no jogo)";
+    ? `${s.playing} de ${s.open} lives tocando${s.redeemable ? `; ${s.redeemable} canais com pontos para resgatar` : ""}. Clique para abrir a central das lives.`
+    : "Lives da Twitch e da Kick: clique para abrir a central e ligar numa conta";
   const status = $("#lives-status");
   status.textContent = s.text;
   status.title = s.text;
+  if (changed) render();
 });
+$("#lives-status").addEventListener("click", () => action("deck:lives"));
 listen<KickSnapshot>("kick", (e) => renderKick(e.payload));
 listen<{ id: string; text: string }>("note", (e) => {
   notes.set(e.payload.id, { text: e.payload.text, until: Date.now() + NOTE_MS });
