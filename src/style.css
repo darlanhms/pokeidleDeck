@@ -1238,7 +1238,7 @@ body.central {
 
 .table .row {
   display: grid;
-  grid-template-columns: minmax(110px, 170px) minmax(110px, 1fr) minmax(150px, 240px) 150px;
+  grid-template-columns: minmax(140px, 1fr) minmax(150px, 1.4fr) 150px;
   gap: 12px;
   align-items: center;
   padding: 8px 14px;
@@ -1270,13 +1270,23 @@ body.central {
   text-overflow: ellipsis;
 }
 
-.cell.state {
-  color: var(--muted);
+.slot-tag {
+  flex-shrink: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--ok-bg, #17322a);
+  color: var(--ok-text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
 }
 
-.cell.state.playing,
-.cell.state.standin {
-  color: var(--ok-text);
+.slot-tag.standin {
+  background: #3a3016;
+  color: #f2c75c;
 }
 
 .cell.points {

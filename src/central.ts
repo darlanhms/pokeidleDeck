@@ -119,8 +119,7 @@ function stateText(row: Row, site: SiteView): string {
     case "standin":
       return `▶ vaga ${row.slot! + 1} · no lugar de ${row.standInFor}`;
     case "queued": {
-      const watching = row.viewers ? ` · ${fmt(row.viewers)} assistindo` : "";
-      return (site.login === false || !site.slots.length ? "no ar" : "no ar · vagas cheias") + watching;
+      return row.viewers ? `no ar · ${fmt(row.viewers)} assistindo` : "no ar";
     }
     case "offline":
       return "offline";
@@ -215,8 +214,13 @@ function renderRow(account: AccountView, site: SiteView, row: Row): HTMLElement 
   return el(
     "div",
     { className: `row ${openMenu === key ? "open" : ""}`, role: "row" },
-    el("span", { className: "cell channel", role: "cell" }, el("span", { className: `dot ${live}` }), el("strong", { textContent: row.channel })),
-    el("span", { className: `cell state ${row.state}`, role: "cell", textContent: stateText(row, site) }),
+    el(
+      "span",
+      { className: "cell channel", role: "cell", title: stateText(row, site) },
+      el("span", { className: `dot ${live}` }),
+      el("strong", { textContent: row.channel }),
+      row.slot === null ? null : el("span", { className: `slot-tag ${row.state}`, textContent: String(row.slot + 1) }),
+    ),
     el(
       "span",
       { className: "cell points", role: "cell" },
@@ -275,7 +279,6 @@ function renderSite(account: AccountView, site: SiteView): HTMLElement | null {
         "div",
         { className: "row head", role: "row" },
         el("span", { role: "columnheader", textContent: "Canal" }),
-        el("span", { role: "columnheader", textContent: "Agora" }),
         el("span", { role: "columnheader", textContent: "Pontos" }),
         el("span", { role: "columnheader" }),
       ),
