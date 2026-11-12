@@ -38,4 +38,4 @@ strip = true
 block2 = "0.6"
 objc2 = "0.6"
 objc2-foundation = "0.3"
-objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKPreferences", "WKContentWorld", "WKFrameInfo", "block2", "objc2-app-kit"] }
+objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKPreferences", "WKContentWorld", "WKFrameInfo", "WKWebsiteDataRecord", "block2", "objc2-app-kit"] }

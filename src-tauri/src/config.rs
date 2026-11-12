@@ -20,6 +20,9 @@ pub struct DeckConfig {
     /// Contas removidas cujo data store foi mantido, para "Restaurar conta removida…".
     #[serde(default)]
     pub removed: Vec<Account>,
+    /// Data stores de contas removidas com "apagar dados", apagados do disco no próximo início.
+    #[serde(default)]
+    pub pending_delete: Vec<Uuid>,
     #[serde(default)]
     pub stacked: bool,
 }

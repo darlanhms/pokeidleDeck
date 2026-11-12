@@ -92,6 +92,11 @@ async fn sees_only_itself(app: &AppHandle, report: &mut Report, id: Uuid, when: 
     report.check(ok, format!("{when}: {id} vê só a própria marca ({seen:?})"));
 }
 
+/// Cache de disco pode ser regravado por uma carga que estava em andamento; o que importa é não sobrar login.
+fn is_cache_only(record: &str) -> bool {
+    record.contains("DiskCache") && !record.contains("Cookies") && !record.contains("Storage")
+}
+
 async fn store_exists(app: &AppHandle, id: Uuid) -> bool {
     let ids = app.fetch_data_store_identifiers().await.unwrap_or_default();
     ids.contains(id.as_bytes())
@@ -131,11 +136,24 @@ async fn phase_one(app: &AppHandle, report: &mut Report) {
     for id in [first, second, third] {
         sees_only_itself(app, report, id, "3 contas").await;
     }
+    let promise = eval(app, first, "return await new Promise((r) => setTimeout(() => r({ answer: 42 }), 500));").await;
+    report.check(
+        matches!(&promise, Ok(v) if v["answer"] == 42),
+        format!("JS com await devolve o valor resolvido ({promise:?})"),
+    );
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    for id in [first, second, third] {
+        let last = app.state::<deck::Deck>().last_report(id);
+        let ok = last.as_ref().is_some_and(|r| r["url"].as_str().is_some_and(|u| u.starts_with("https://pokeidle.io")));
+        report.check(ok, format!("{id} reporta pelo IPC a cada segundo ({last:?})"));
+    }
 
     on_main(app, move |app| deck::remove_account(app, second, true)).await;
     panes_fill_without_holes(app, report, 2);
-    tokio::time::sleep(Duration::from_secs(8)).await;
-    report.check(!store_exists(app, second).await, format!("data store da conta removida {second} apagado"));
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let records = webkit::data_records(app, second).await;
+    report.check(records.as_ref().is_ok_and(|r| r.iter().all(|r| is_cache_only(r))), format!("conta removida {second} ficou sem login/cookies ({records:?})"));
+    let _ = std::fs::write(deck::data_dir(app).join("selftest-removed.txt"), second.to_string());
     report.check(store_exists(app, first).await && store_exists(app, third).await, "data stores das outras continuam");
     for id in [first, third] {
         on_main(app, move |app| {
@@ -160,11 +178,19 @@ async fn phase_two(app: &AppHandle, report: &mut Report) {
         let _ = wait_loaded(app, id).await;
         sees_only_itself(app, report, id, "depois de reabrir").await;
     }
+    let removed = std::fs::read_to_string(deck::data_dir(app).join("selftest-removed.txt"))
+        .ok()
+        .and_then(|s| Uuid::parse_str(s.trim()).ok());
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    if let Some(removed) = removed {
+        report.check(!store_exists(app, removed).await, format!("data store da removida {removed} apagado do disco no início"));
+    }
     for &id in &ids {
         on_main(app, move |app| deck::remove_account(app, id, true)).await;
     }
-    tokio::time::sleep(Duration::from_secs(8)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
     for &id in &ids {
-        report.check(!store_exists(app, id).await, format!("limpeza: data store {id} apagado"));
+        let records = webkit::data_records(app, id).await;
+        report.check(records.as_ref().is_ok_and(|r| r.iter().all(|r| is_cache_only(r))), format!("limpeza: {id} sem login/cookies ({records:?})"));
     }
 }

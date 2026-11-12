@@ -5,6 +5,7 @@ use crate::{
 use objc2::MainThreadMarker;
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::Mutex,
     time::Duration,
@@ -36,6 +37,7 @@ const KEEP_LABEL: &str = "Remover e manter dados";
 pub struct Deck {
     config: Mutex<DeckConfig>,
     path: PathBuf,
+    reports: Mutex<HashMap<Uuid, serde_json::Value>>,
 }
 
 impl Deck {
@@ -50,6 +52,10 @@ impl Deck {
 
     pub fn accounts(&self) -> Vec<Account> {
         self.config.lock().unwrap().accounts.clone()
+    }
+
+    pub fn last_report(&self, id: Uuid) -> Option<serde_json::Value> {
+        self.reports.lock().unwrap().get(&id).cloned()
     }
 }
 
@@ -93,7 +99,8 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let config = DeckConfig::load(&path);
     config.save(&path)?;
     let accounts = config.accounts.clone();
-    app.manage(Deck { config: Mutex::new(config), path });
+    app.manage(Deck { config: Mutex::new(config), path, reports: Mutex::default() });
+    tauri::async_runtime::spawn(purge_pending(app.clone()));
 
     let window = WindowBuilder::new(app, "main")
         .title("PokeIdle Deck")
@@ -225,20 +232,23 @@ pub fn remove_account(app: &AppHandle, id: Uuid, delete_data: bool) {
     let removed = deck.update(|config| {
         let index = config.accounts.iter().position(|a| a.id == id)?;
         let account = config.accounts.remove(index);
-        if !delete_data {
+        if delete_data {
+            config.pending_delete.push(id);
+        } else {
             config.removed.push(account.clone());
         }
         Some(account)
     });
     let Some(account) = removed else { return };
     if let Some(webview) = app.get_webview(&label(&id)) {
+        webkit::close_page(&webview);
         let _ = webview.close();
     }
     relayout(app);
     if delete_data {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            match delete_data_store(&app, id).await {
+            match webkit::wipe_data_store(&app, id).await {
                 Ok(()) => println!("[deck] dados de {} apagados ({id})", account.name),
                 Err(err) => eprintln!("[deck] não apagou os dados de {} ({id}): {err}", account.name),
             }
@@ -246,17 +256,18 @@ pub fn remove_account(app: &AppHandle, id: Uuid, delete_data: bool) {
     }
 }
 
-/// O WebKit só apaga o data store depois que a última WKWebView que usa ele foi liberada.
-pub async fn delete_data_store(app: &AppHandle, id: Uuid) -> Result<(), String> {
-    let mut last = String::new();
-    for _ in 0..10 {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        match app.remove_data_store(*id.as_bytes()).await {
-            Ok(()) => return Ok(()),
-            Err(err) => last = err.to_string(),
+/// Apaga do disco os data stores das contas removidas na última vez (o conteúdo já foi limpo na hora).
+async fn purge_pending(app: AppHandle) {
+    let pending = app.state::<Deck>().config.lock().unwrap().pending_delete.clone();
+    for id in pending {
+        match webkit::remove_data_store(&app, id).await {
+            Ok(()) => {
+                println!("[deck] data store {id} apagado do disco");
+                app.state::<Deck>().update(|config| config.pending_delete.retain(|p| *p != id));
+            }
+            Err(err) => eprintln!("[deck] data store {id} fica para a próxima: {err}"),
         }
     }
-    Err(last)
 }
 
 fn move_account(app: &AppHandle, id: Uuid, offset: isize) {
@@ -406,6 +417,7 @@ pub async fn account_eval(app: AppHandle, id: Uuid, script: String) -> Result<St
 #[tauri::command]
 pub async fn account_report(app: AppHandle, webview: Webview, report: serde_json::Value) {
     if let Some(id) = id_from_label(webview.label()) {
+        app.state::<Deck>().reports.lock().unwrap().insert(id, report.clone());
         let _ = app.emit_to("deck", "report", serde_json::json!({ "id": id, "report": report }));
     }
 }

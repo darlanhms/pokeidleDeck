@@ -4,19 +4,42 @@ use block2::RcBlock;
 use objc2::{
     msg_send,
     rc::Retained,
-    runtime::{AnyObject, Bool},
+    runtime::{AnyObject, Bool, Sel},
     sel, MainThreadMarker,
 };
-use objc2_foundation::{ns_string, NSError, NSString, NSUUID};
+use objc2_foundation::{ns_string, NSArray, NSDate, NSError, NSString, NSUUID};
 use objc2_web_kit::{
-    WKAudiovisualMediaTypes, WKContentWorld, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+    WKAudiovisualMediaTypes, WKContentWorld, WKWebView, WKWebViewConfiguration, WKWebsiteDataRecord,
+    WKWebsiteDataStore,
 };
-use std::{sync::Mutex, time::Duration};
-use tauri::Webview;
+use std::{ptr::NonNull, sync::Mutex, time::Duration};
+use tauri::{AppHandle, Webview};
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
-/// Configuração com o data store persistente da conta. Passar a configuração pronta é o único jeito de
-/// ligar o autoplay sem gesto, e com ela o wry deixa de aplicar o `data_store_identifier` sozinho.
+/// Os completion handlers do WebKit são blocos `Fn`; a resposta só pode sair uma vez.
+struct Reply<T>(Mutex<Option<oneshot::Sender<T>>>);
+
+impl<T> Reply<T> {
+    fn new() -> (Self, oneshot::Receiver<T>) {
+        let (tx, rx) = oneshot::channel();
+        (Self(Mutex::new(Some(tx))), rx)
+    }
+
+    fn send(&self, value: T) {
+        if let Some(tx) = self.0.lock().unwrap().take() {
+            let _ = tx.send(value);
+        }
+    }
+}
+
+fn ns_uuid(id: Uuid) -> Retained<NSUUID> {
+    NSUUID::from_bytes(*id.as_bytes())
+}
+
+/// Configuração com o data store persistente da conta (ou um efêmero, sem `store`). Passar a
+/// configuração pronta é o único jeito de ligar o autoplay sem gesto; com ela o wry deixa de aplicar
+/// o `data_store_identifier` sozinho.
 pub fn configuration(
     mtm: MainThreadMarker,
     store: Option<Uuid>,
@@ -25,9 +48,7 @@ pub fn configuration(
     unsafe {
         let config = WKWebViewConfiguration::new(mtm);
         let data_store = match store {
-            Some(id) => {
-                WKWebsiteDataStore::dataStoreForIdentifier(&NSUUID::from_bytes(*id.as_bytes()), mtm)
-            }
+            Some(id) => WKWebsiteDataStore::dataStoreForIdentifier(&ns_uuid(id), mtm),
             None => WKWebsiteDataStore::nonPersistentDataStore(mtm),
         };
         config.setWebsiteDataStore(&data_store);
@@ -41,7 +62,7 @@ pub fn configuration(
 /// Roda `script` como corpo de uma função async na página (pode usar `await`) e devolve o valor
 /// resolvido em JSON. É o `Runtime.evaluate` com `awaitPromise` do original.
 pub async fn call_async(webview: &Webview, script: &str, timeout: Duration) -> Result<String, String> {
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+    let (reply, rx) = Reply::<Result<String, String>>::new();
     // O valor volta como texto para não depender da conversão JS → NSDictionary do WebKit.
     let body = format!(
         "const __deckValue = await (async () => {{\n{script}\n}})();\n\
@@ -51,19 +72,14 @@ pub async fn call_async(webview: &Webview, script: &str, timeout: Duration) -> R
         .with_webview(move |platform| unsafe {
             let webview = &*(platform.inner() as *const WKWebView);
             let mtm = MainThreadMarker::new_unchecked();
-            let tx = Mutex::new(Some(tx));
             let done = RcBlock::new(move |value: *mut AnyObject, error: *mut NSError| {
-                let result = if let Some(error) = error.as_ref() {
-                    Err(describe(error))
-                } else {
-                    match value.as_ref().and_then(|v| v.downcast_ref::<NSString>()) {
-                        Some(text) => Ok(text.to_string()),
-                        None => Ok("null".to_owned()),
-                    }
-                };
-                if let Some(tx) = tx.lock().unwrap().take() {
-                    let _ = tx.send(result);
-                }
+                reply.send(match error.as_ref() {
+                    Some(error) => Err(describe(error)),
+                    None => Ok(value
+                        .as_ref()
+                        .and_then(|v| v.downcast_ref::<NSString>())
+                        .map_or_else(|| "null".to_owned(), |text| text.to_string())),
+                });
             });
             webview.callAsyncJavaScript_arguments_inFrame_inContentWorld_completionHandler(
                 &NSString::from_str(&body),
@@ -82,15 +98,85 @@ pub async fn call_async(webview: &Webview, script: &str, timeout: Duration) -> R
 }
 
 fn describe(error: &NSError) -> String {
-    let message = error
+    error
         .userInfo()
         .objectForKey(ns_string!("WKJavaScriptExceptionMessage"))
         .and_then(|m| m.downcast::<NSString>().ok())
-        .map(|m| m.to_string());
-    match message {
-        Some(message) => message,
-        None => error.localizedDescription().to_string(),
-    }
+        .map_or_else(|| error.localizedDescription().to_string(), |m| m.to_string())
+}
+
+/// Fecha a página de verdade. O `Drop` do wry tira a WKWebView da janela mas segura uma referência
+/// extra de propósito, então sem isto a página removida continuaria rodando (e conectada ao jogo).
+pub fn close_page(webview: &Webview) {
+    let _ = webview.with_webview(|platform| unsafe {
+        let object = &*(platform.inner() as *const AnyObject);
+        if responds(object, sel!(_close)) {
+            let _: () = msg_send![object, _close];
+        } else {
+            let webview = &*(platform.inner() as *const WKWebView);
+            webview.stopLoading();
+            webview.loadHTMLString_baseURL(ns_string!(""), None);
+        }
+    });
+}
+
+/// Apaga o conteúdo do data store (cookies, localStorage, cache...) na hora, mesmo em uso.
+pub async fn wipe_data_store(app: &AppHandle, id: Uuid) -> Result<(), String> {
+    let (reply, rx) = Reply::<()>::new();
+    app.run_on_main_thread(move || unsafe {
+        let mtm = MainThreadMarker::new_unchecked();
+        let store = WKWebsiteDataStore::dataStoreForIdentifier(&ns_uuid(id), mtm);
+        let done = RcBlock::new(move || reply.send(()));
+        store.removeDataOfTypes_modifiedSince_completionHandler(
+            &WKWebsiteDataStore::allWebsiteDataTypes(mtm),
+            &NSDate::distantPast(),
+            &done,
+        );
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await.map_err(|_| "o WebKit não respondeu".to_owned())
+}
+
+/// Os sites com dados guardados no data store, com os tipos de dado de cada um.
+pub async fn data_records(app: &AppHandle, id: Uuid) -> Result<Vec<String>, String> {
+    let (reply, rx) = Reply::<Vec<String>>::new();
+    app.run_on_main_thread(move || unsafe {
+        let mtm = MainThreadMarker::new_unchecked();
+        let store = WKWebsiteDataStore::dataStoreForIdentifier(&ns_uuid(id), mtm);
+        let done = RcBlock::new(move |records: NonNull<NSArray<WKWebsiteDataRecord>>| {
+            let records = records.as_ref();
+            reply.send(
+                records
+                    .iter()
+                    .map(|r| {
+                        let types: Vec<String> = r.dataTypes().iter().map(|t| t.to_string()).collect();
+                        format!("{} {types:?}", r.displayName())
+                    })
+                    .collect(),
+            );
+        });
+        store.fetchDataRecordsOfTypes_completionHandler(&WKWebsiteDataStore::allWebsiteDataTypes(mtm), &done);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await.map_err(|_| "o WebKit não respondeu".to_owned())
+}
+
+/// Apaga o data store do disco. Só funciona com nenhuma WKWebView dele viva no processo, e como o wry
+/// nunca libera as que fecha, na prática só no começo do app.
+pub async fn remove_data_store(app: &AppHandle, id: Uuid) -> Result<(), String> {
+    let (reply, rx) = Reply::<Result<(), String>>::new();
+    app.run_on_main_thread(move || unsafe {
+        let mtm = MainThreadMarker::new_unchecked();
+        let done = RcBlock::new(move |error: *mut NSError| {
+            reply.send(match error.as_ref() {
+                Some(error) => Err(error.localizedDescription().to_string()),
+                None => Ok(()),
+            });
+        });
+        WKWebsiteDataStore::removeDataStoreForIdentifier_completionHandler(&ns_uuid(id), &done, mtm);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await.map_err(|_| "o WebKit não respondeu".to_owned())?
 }
 
 /// Muta o áudio da página inteira (API privada `_setPageMuted:`; não é App Store).
@@ -115,7 +201,7 @@ pub fn disable_occlusion_detection(webview: &Webview) {
     });
 }
 
-unsafe fn responds(object: &AnyObject, selector: objc2::runtime::Sel) -> bool {
+unsafe fn responds(object: &AnyObject, selector: Sel) -> bool {
     let responds: Bool = unsafe { msg_send![object, respondsToSelector: selector] };
     responds.as_bool()
 }
