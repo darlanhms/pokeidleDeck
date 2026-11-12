@@ -387,7 +387,20 @@ pub fn open_login(app: &AppHandle, id: Uuid, url: &str, title: &str) {
             }));
             let mut token = 0i64;
             unsafe { core.add_NavigationCompleted(&done, &mut token)? };
-            unsafe { core.Navigate(&HSTRING::from(url.as_str()))? };
+            // A checagem anti-robô guarda o veredito em cookies e no armazenamento dos sites da Twitch:
+            // depois de uma recusa, toda tentativa seguinte é recusada. Sem login, não há o que perder ali.
+            for origin in TWITCH_ORIGINS {
+                let body = serde_json::json!({ "origin": origin, "storageTypes": "all" }).to_string();
+                let _ = unsafe {
+                    core.CallDevToolsProtocolMethod(&HSTRING::from("Storage.clearDataForOrigin"), &HSTRING::from(body), &ignore())
+                };
+            }
+            let page = core.clone();
+            let go = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |_, _| {
+                unsafe { page.Navigate(&HSTRING::from(url.as_str()))? };
+                Ok(())
+            }));
+            unsafe { core.CallDevToolsProtocolMethod(&HSTRING::from("Network.clearBrowserCache"), &HSTRING::from("{}"), &go)? };
             LOGINS.with(|l| l.borrow_mut().insert(key.clone(), (controller, hwnd)));
             Ok(())
         }));
@@ -411,6 +424,16 @@ pub fn open_login(app: &AppHandle, id: Uuid, url: &str, title: &str) {
         _ => {}
     });
 }
+
+const TWITCH_ORIGINS: [&str; 7] = [
+    "https://www.twitch.tv",
+    "https://twitch.tv",
+    "https://passport.twitch.tv",
+    "https://id.twitch.tv",
+    "https://gql.twitch.tv",
+    "https://k.twitchcdn.net",
+    "https://assets.twitch.tv",
+];
 
 fn fit(controller: &ICoreWebView2Controller, hwnd: isize) {
     use windows::Win32::{Foundation::{HWND, RECT}, UI::WindowsAndMessaging::GetClientRect};
