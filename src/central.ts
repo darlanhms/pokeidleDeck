@@ -188,7 +188,7 @@ function renderRow(account: AccountView, site: SiteView, row: Row): HTMLElement 
   const cheapest = Math.min(...row.rewards.filter((r) => !r.blocked).map((r) => r.cost), 300);
   const progress = row.ready ? 100 : row.points === null ? 0 : Math.min(100, (row.points / cheapest) * 100);
   const canPlay = row.state === "queued" && site.slots.length > 0 && site.login !== false;
-  const primaryLabel = row.ready ? "Resgatar ▾" : canPlay ? "Tocar nesta vaga ▾" : row.state === "closed" ? "Voltar para a lista" : "⋯";
+  const primaryLabel = row.ready ? "Resgatar ▾" : canPlay ? "Tocar na vaga ▾" : row.state === "closed" ? "Voltar à lista" : "⋯";
   const primary = el("button", {
     type: "button",
     className: `row-action ${row.ready ? "ready" : primaryLabel === "⋯" ? "quiet" : ""}`,
@@ -226,7 +226,7 @@ function renderRow(account: AccountView, site: SiteView, row: Row): HTMLElement 
       ),
       el("span", { className: "bar" }, fill),
     ),
-    el("span", { className: "cell actions", role: "cell" }, primary, openMenu === key ? menuFor(account, site, row) : null),
+    el("span", { className: "cell row-actions", role: "cell" }, primary, openMenu === key ? menuFor(account, site, row) : null),
   );
 }
 

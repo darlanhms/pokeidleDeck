@@ -403,14 +403,14 @@ button.chip.waiting:hover {
   text-overflow: ellipsis;
 }
 
-.actions {
+.pane-header .actions {
   display: flex;
   gap: 2px;
   flex-shrink: 0;
   margin-left: auto;
 }
 
-.actions button {
+.pane-header .actions button {
   width: 30px;
   height: 26px;
   padding: 0;
@@ -423,16 +423,16 @@ button.chip.waiting:hover {
   color: var(--faint);
 }
 
-.actions button:hover {
+.pane-header .actions button:hover {
   color: var(--text);
 }
 
-.actions button.current {
+.pane-header .actions button.current {
   background: var(--chip);
   color: var(--text);
 }
 
-.actions button.power.off {
+.pane-header .actions button.power.off {
   background: var(--accent-bg);
   color: var(--accent);
 }
@@ -1315,10 +1315,15 @@ body.central {
   background: var(--accent);
 }
 
-.cell.actions {
+.cell.row-actions {
   position: relative;
   display: flex;
   justify-content: flex-end;
+  min-width: 0;
+}
+
+.cell.row-actions > button {
+  flex-shrink: 0;
 }
 
 .row-action {
