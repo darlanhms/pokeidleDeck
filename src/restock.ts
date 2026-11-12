@@ -3,7 +3,16 @@ import { listen } from "@tauri-apps/api/event";
 
 type Rule = { on: boolean; id: number; keep: number; below: number };
 type Config = { on: boolean; balls: Rule; revives: Rule; potions: Rule; potionFirst: boolean; goldFloor: number };
-type Offer = { id: number; name: string | null; price: number; have: number; heal?: number; cost?: number | null };
+type Offer = {
+  id: number;
+  name: string | null;
+  price: number;
+  have: number;
+  heal?: number;
+  healPct?: number;
+  cost?: number | null;
+  golden?: boolean;
+};
 type Status = {
   configured: boolean;
   on: boolean;
@@ -25,6 +34,7 @@ type Info = { name: string; config: Config; status: Status | null };
 const MAX_STOCK = 10_000_000;
 const MAX_GOLD = 1_000_000_000_000;
 const BEST_VALUE = 0;
+const GOLDEN = 70070;
 
 // Antes de a página contar o que tem: os nomes do catálogo do jogo, para a janela já abrir preenchida.
 const KNOWN_BALLS: Offer[] = [
@@ -39,12 +49,20 @@ const KNOWN_POTIONS: Offer[] = [
   { id: 202, name: "Ultra Potion", price: 400, have: 0, heal: 400 },
   { id: 203, name: "Hyper Potion", price: 800, have: 0, heal: 1000 },
   { id: 204, name: "Ultimate Potion", price: 1500, have: 0, heal: 3000 },
+  { id: GOLDEN, name: "Golden Potion", price: 0, have: 0, healPct: 0.5, golden: true },
 ];
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const n = (value: number) => Math.round(value).toLocaleString("pt-BR");
 const cost = (value: number) => value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const sum = (offers?: Offer[]) => (offers ?? []).reduce((total, o) => total + o.have, 0);
+// "Todas as poções" não inclui a Golden, que cura por % do HP e só conta quando é a escolhida.
+const sum = (offers?: Offer[]) => (offers ?? []).filter((o) => !o.golden).reduce((total, o) => total + o.have, 0);
+
+function potionText(p: Offer): string {
+  const price = p.price > 0 ? ` · ${n(p.price)} ouro` : "";
+  if (p.golden) return `${p.name}${price} · cura ${Math.round((p.healPct ?? 0.5) * 100)}% do HP`;
+  return `${p.name}${price} · ${n(p.heal ?? 0)} HP`;
+}
 
 let config: Config | null = null;
 let status: Status | null = null;
@@ -96,6 +114,7 @@ function showConfig(c: Config) {
 
 function showStatus() {
   if (!config) return;
+  $("potions-keep-label").textContent = config.potions.id === GOLDEN ? "Manter (só Golden Potion)" : "Manter (todas as poções)";
   const s = status;
   const connected = !!s?.connected;
   const state = $("state");
@@ -113,7 +132,7 @@ function showStatus() {
   const potions = s?.potions?.length ? s.potions : KNOWN_POTIONS;
   fill(
     potion,
-    [{ id: BEST_VALUE, text: "Melhor custo-benefício (automático)" }, ...potions.map((p) => ({ id: p.id, text: `${p.name} · ${n(p.price)} ouro · ${n(p.heal ?? 0)} HP` }))],
+    [{ id: BEST_VALUE, text: "Melhor custo-benefício (automático)" }, ...potions.map((p) => ({ id: p.id, text: potionText(p) }))],
     config.potions.id,
   );
 
@@ -127,9 +146,15 @@ function showStatus() {
     $("revives-info").textContent =
       `Na mochila: ${n(sum(revives))}` +
       (revives.length ? ` (${revives.map((r) => `${r.name} ${n(r.have)}`).join(" · ")})\nCompra: ${revives[0].name}, ${n(revives[0].price)} ouro` : "");
-    const lines = [`Na mochila (todas): ${n(sum(s.potions))}`];
-    if (s.maxHp != null && s.threshold != null) {
-      const costs = (s.potions ?? []).filter((p) => p.cost != null).sort((a, b) => a.cost! - b.cost!);
+    const golden = s.potions?.find((p) => p.golden);
+    const lines =
+      config.potions.id === GOLDEN
+        ? [golden ? `Na mochila: ${n(golden.have)} Golden Potion (só ela conta)` : "A Golden Potion não está à venda no NPC."]
+        : [`Na mochila (todas, sem a Golden): ${n(sum(s.potions))}`];
+    if (config.potions.id === GOLDEN) {
+      // Por quantidade: o custo-benefício não vale para ela.
+    } else if (s.maxHp != null && s.threshold != null) {
+      const costs = (s.potions ?? []).filter((p) => p.cost != null && !p.golden).sort((a, b) => a.cost! - b.cost!);
       lines.push(
         `Ouro por HP útil no pokémon ativo (${n(s.maxHp)} HP, poção abaixo de ${Math.round(s.threshold * 100)}%): ` +
           costs.map((p) => `${p.name} ${cost(p.cost!)}`).join(" · "),

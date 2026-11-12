@@ -11,7 +11,9 @@
   const GAP = 4000; // uma compra a cada 4 s
   const MAX_QTY = 9999; // o teto do jogo por pedido (`maxCompraPorOuro`)
   const TIMEOUT = 15000; // compra sem resposta do jogo depois disso conta como falha
-  const GOLDEN_POTION = 70070; // a única que cura por % do HP: fica de fora (nem conta, nem compra)
+  // A única que cura por % do HP: fica fora da soma "todas as poções" e do custo-benefício. Escolhida em
+  // "Qual comprar", vira a poção da regra e a conta passa a ser só dela (por quantidade, sem olhar o HP).
+  const GOLDEN_POTION = 70070;
   const KEYS = ['gold', 'balls', 'items', 'automation', 'activeId', 'nick'];
   const WANTED = new Set(['welcome', 'estado', 'batalha', 'erro']);
 
@@ -131,6 +133,15 @@
     return [...items.values()].sort((a, b) => a.price - b.price);
   }
 
+  /** A Golden Potion à venda no NPC, se o jogo vende. */
+  function golden() {
+    const i = [...(mirror ?? []), ...ours].find((x) => x?.id === GOLDEN_POTION && x.npcPrice > 0);
+    if (!i) return null;
+    return { id: i.id, name: i.name, price: paid.get(i.id) ?? i.npcPrice, heal: Number(i.healAmount) || 0, healPct: Number(i.healPct) || 0 };
+  }
+
+  const goldenChosen = () => config?.potions?.id === GOLDEN_POTION;
+
   const have = (item) => Number(account?.items?.[item.id]) || 0;
   const total = (items) => items.reduce((sum, item) => sum + have(item), 0);
 
@@ -152,6 +163,7 @@
   }
 
   function pickPotion(potions) {
+    if (goldenChosen()) return golden();
     if (config?.potions?.id > 0) return potions.find((p) => p.id === config.potions.id) ?? null;
     if (!rate(potions)) return null;
     return potions.filter((p) => p.cost < Infinity).sort((a, b) => a.cost - b.cost || b.useful - a.useful)[0] ?? null;
@@ -204,7 +216,8 @@
     const b = ballCatalog.find((x) => x.id === config.balls?.id && x.compravel && x.priceGold > 0);
     const ball = b && { id: b.id, name: b.nome, price: paid.get(`bola${b.id}`) ?? b.priceGold };
     // Primeiro o que mantém o pokemon de pé, se o ouro não der para tudo.
-    const todo = plan('potions', config.potions, total(potions), potion)
+    const potionCount = goldenChosen() ? (potion ? have(potion) : 0) : total(potions);
+    const todo = plan('potions', config.potions, potionCount, potion)
       ?? plan('revives', config.revives, total(revives), revives[0])
       ?? plan('balls', config.balls, Number(account.balls?.[config.balls?.id]) || 0, ball);
     if (!todo) return;
@@ -290,9 +303,9 @@
       balls: ballCatalog.filter((b) => b.compravel && b.priceGold > 0)
         .map((b) => ({ id: b.id, name: b.nome, price: paid.get(`bola${b.id}`) ?? b.priceGold, have: Number(account.balls?.[b.id]) || 0 })),
       revives: revives.map((r) => ({ id: r.id, name: r.name, price: r.price, have: have(r) })),
-      potions: potions.map((p) => ({
+      potions: [...potions, golden()].filter(Boolean).map((p) => ({
         id: p.id, name: p.name, price: p.price, have: have(p), heal: p.healPct > 0 && fit ? Math.round(p.healPct * fit.hp) : p.heal,
-        cost: fit && Number.isFinite(p.cost) ? p.cost : null,
+        healPct: p.healPct, cost: fit && Number.isFinite(p.cost) ? p.cost : null, golden: p.id === GOLDEN_POTION,
       })),
       potionId: potion?.id ?? null,
       maxHp: fit?.hp ?? null,
