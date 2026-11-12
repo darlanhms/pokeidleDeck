@@ -11,8 +11,11 @@
   r = await call('/rewards');
   if (!r.ok) return { points, error: 'bônus: erro ' + r.status };
   const word = new RegExp(a.word, 'i');
-  const reward = ((await r.json())?.data || []).find(x => x.is_enabled && word.test(x.title || '')
-   && /pokeidle/i.test((x.title || '') + ' ' + (x.description || '')));
+  // Pacotes do mesmo bônus (1h a 10h): o maior que o saldo paga; nenhum cabe, o mais barato.
+  const all = ((await r.json())?.data || []).filter(x => x.is_enabled && word.test(x.title || '')
+   && /pokeidle/i.test((x.title || '') + ' ' + (x.description || ''))).sort((x, y) => x.cost - y.cost);
+  const open = all.filter(x => !x.is_paused);
+  const reward = open.filter(x => x.cost <= points).pop() ?? open[0] ?? all[0];
   if (!reward) return { points, error: 'canal sem o bônus' };
   const out = { points, cost: reward.cost, title: reward.title, paused: !!reward.is_paused };
   if (!a.spend || reward.is_paused || points < reward.cost || (a.refund !== null && points >= a.refund)) return out;

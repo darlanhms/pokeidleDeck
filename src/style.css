@@ -1500,3 +1500,37 @@ body.central {
   color: var(--faint);
   font-size: 12px;
 }
+
+.menu .package-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+}
+
+.menu .packages {
+  display: flex;
+  gap: 4px;
+}
+
+.menu button.package {
+  min-width: 34px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #262a33;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.menu button.package:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.menu button.package:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

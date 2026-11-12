@@ -138,24 +138,29 @@ function menuFor(account: AccountView, site: SiteView, row: Row): HTMLElement {
   };
   if (row.rewards.length) {
     menu.append(el("span", { className: "menu-title", textContent: "Resgatar" }));
-    for (const reward of row.rewards) {
-      const missing = (reward.cost - (row.points ?? 0));
-      const detail = reward.blocked ?? (reward.affordable ? fmt(reward.cost) : `faltam ${fmt(missing)}`);
-      const hours = /\((\d+)\s*h\)/i.exec(reward.title)?.[1] ?? "1";
-      const item = el("button", { type: "button", role: "menuitem", disabled: !reward.affordable }, `${REWARD_LABEL[reward.kind]} · ${hours}h`, el("span", { textContent: detail }));
-      item.addEventListener("click", async () => {
-        close();
-        rowMessages.set(`${site.site}:${row.channel}`, { text: "resgatando…", ok: true });
-        render();
-        try {
-          const text = await invoke<string>("central_redeem", { id: account.id, site: site.site, channel: row.channel, kind: reward.kind });
-          rowMessages.set(`${site.site}:${row.channel}`, { text, ok: true });
-        } catch (err) {
-          rowMessages.set(`${site.site}:${row.channel}`, { text: String(err), ok: false });
-        }
-        render();
+    const redeem = async (reward: RewardView) => {
+      close();
+      rowMessages.set(`${site.site}:${row.channel}`, { text: "resgatando…", ok: true });
+      render();
+      try {
+        const text = await invoke<string>("central_redeem", { id: account.id, site: site.site, channel: row.channel, kind: reward.kind, cost: reward.cost });
+        rowMessages.set(`${site.site}:${row.channel}`, { text, ok: true });
+      } catch (err) {
+        rowMessages.set(`${site.site}:${row.channel}`, { text: String(err), ok: false });
+      }
+      render();
+    };
+    for (const kind of Object.keys(REWARD_LABEL) as Reward[]) {
+      const packages = row.rewards.filter((r) => r.kind === kind);
+      if (!packages.length) continue;
+      const pills = packages.map((reward) => {
+        const hours = /\((\d+)\s*h\)/i.exec(reward.title)?.[1] ?? "1";
+        const pill = el("button", { type: "button", className: "package", disabled: !reward.affordable, textContent: `${hours}h` });
+        pill.title = reward.blocked ?? (reward.affordable ? "" : `faltam ${fmt(reward.cost - (row.points ?? 0))}`);
+        pill.addEventListener("click", () => redeem(reward));
+        return pill;
       });
-      menu.append(item);
+      menu.append(el("div", { className: "package-row", role: "group", ariaLabel: REWARD_LABEL[kind] }, el("span", { textContent: REWARD_LABEL[kind] }), el("span", { className: "packages" }, ...pills)));
     }
   }
   if (site.slots.length && row.state !== "closed") {

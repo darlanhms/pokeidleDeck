@@ -344,10 +344,10 @@ pub fn central_choose(app: AppHandle, id: Uuid, site: String, slot: usize, choic
 }
 
 #[tauri::command]
-pub async fn central_redeem(app: AppHandle, id: Uuid, site: String, channel: String, kind: Reward) -> Result<String, String> {
+pub async fn central_redeem(app: AppHandle, id: Uuid, site: String, channel: String, kind: Reward, cost: Option<i64>) -> Result<String, String> {
     let site = site_of(&site).ok_or("site desconhecido")?;
     let name = app.state::<Deck>().accounts().into_iter().find(|a| a.id == id).map(|a| a.name).unwrap_or_default();
-    let result = points::redeem(&app, &name, id, site, &channel, kind).await;
+    let result = points::redeem(&app, &name, id, site, &channel, kind, cost).await;
     if let Ok(text) = &result {
         automation::note(&app, id, text.clone());
     }

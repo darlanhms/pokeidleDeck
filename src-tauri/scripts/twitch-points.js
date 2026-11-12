@@ -39,8 +39,11 @@
   }
   if (!a.word) return out;
   const word = new RegExp(a.word, 'i');
-  const reward = (user.channel.communityPointsSettings?.customRewards || []).find(x => x.isEnabled && word.test(x.title || '')
-   && /pokeidle/i.test((x.title || '') + ' ' + (x.prompt || '')));
+  // Pacotes do mesmo bônus (1h a 10h): o maior que o saldo paga; nenhum cabe, o mais barato.
+  const all = (user.channel.communityPointsSettings?.customRewards || []).filter(x => x.isEnabled && word.test(x.title || '')
+   && /pokeidle/i.test((x.title || '') + ' ' + (x.prompt || ''))).sort((x, y) => x.cost - y.cost);
+  const open = all.filter(x => !x.isPaused && x.isInStock !== false && !x.cooldownExpiresAt);
+  const reward = open.filter(x => x.cost <= points).pop() ?? open[0] ?? all[0];
   if (!reward) return { ...out, error: 'canal sem o bônus' };
   Object.assign(out, { cost: reward.cost, title: reward.title, paused: reward.isPaused || !reward.isInStock || !!reward.cooldownExpiresAt });
   if (!a.spend || out.paused || points < reward.cost || (a.refund !== null && points >= a.refund)) return out;

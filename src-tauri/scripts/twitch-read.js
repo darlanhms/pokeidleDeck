@@ -20,13 +20,10 @@
   }
  };
  const fail = (j, x) => j?.failed || x?.error?.code || j?.errors?.[0]?.message || 'sem resposta';
- // O canal vende o mesmo bônus em pacotes (1h, 3h, 5h, 10h), todos pelo mesmo preço por hora: fica o maior
- // que o saldo paga; sem saldo para nenhum, o mais barato (o que falta menos).
- const pick = (all, points) => a.words.map(w => { const word = new RegExp(w, 'i');
-  const list = all.filter(r => word.test(r.title) && /pokeidle/i.test(r.title + ' ' + (r.prompt || r.about || '')));
-  const open = list.filter(r => !r.blocked), pool = open.length ? open : list;
-  const fits = typeof points === 'number' ? pool.filter(r => r.cost <= points).sort((x, y) => y.cost - x.cost) : [];
-  return fits[0] ?? pool.sort((x, y) => x.cost - y.cost)[0] ?? null; });
+ // O canal vende cada bônus em pacotes (1h, 3h, 5h, 10h): vão todos, com o índice do bônus em `kind`.
+ const pick = all => a.words.flatMap((w, kind) => { const word = new RegExp(w, 'i');
+  return all.filter(r => word.test(r.title) && /pokeidle/i.test(r.title + ' ' + (r.prompt || r.about || '')))
+   .sort((x, y) => x.cost - y.cost).map(r => ({ ...r, kind })); });
  try {
   const j = await gql('query($login:String!){currentUser{id login} user(login:$login){id channel{self{communityPoints{balance}}' +
    ' communityPointsSettings{customRewards{id title prompt cost isEnabled isPaused isInStock cooldownExpiresAt}}}}}', { login: a.channel });
@@ -40,6 +37,6 @@
   const all = (user.channel.communityPointsSettings?.customRewards || []).filter(r => r.isEnabled).map(r => ({ id: r.id,
    title: r.title || '', prompt: r.prompt ?? null, cost: r.cost, blocked: r.isPaused ? 'pausado no canal'
     : !r.isInStock ? 'esgotado no canal' : r.cooldownExpiresAt ? 'em espera no canal' : null }));
-  return { channelId: user.id, points: typeof points === 'number' ? points : null, owner, login: me?.login ?? null, rewards: pick(all, points) };
+  return { channelId: user.id, points: typeof points === 'number' ? points : null, owner, login: me?.login ?? null, rewards: pick(all) };
  } catch (e) { return { error: 'sem resposta da Twitch: ' + (e && e.message || e) }; }
 })(__ARGS__).then(o => JSON.stringify(o))

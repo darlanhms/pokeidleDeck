@@ -296,10 +296,9 @@ fn parse_read(value: Option<serde_json::Value>) -> ChannelInfo {
         .as_array()
         .map(|list| {
             list.iter()
-                .zip(REWARDS)
-                .filter_map(|(r, kind)| {
+                .filter_map(|r| {
                     Some(RewardInfo {
-                        kind,
+                        kind: *REWARDS.get(r.get("kind")?.as_u64()? as usize)?,
                         id: r.get("id")?.as_str().map(String::from).unwrap_or_else(|| r["id"].to_string()),
                         title: r.get("title")?.as_str()?.to_owned(),
                         prompt: r.get("prompt").and_then(|p| p.as_str()).map(String::from),
@@ -353,9 +352,21 @@ pub fn last_chest(app: &AppHandle, id: Uuid) -> Option<String> {
 }
 
 /// Resgata na mão um bônus num canal (tocando ou não). Devolve o texto do que aconteceu.
-pub async fn redeem(app: &AppHandle, account: &str, id: Uuid, site: Site, channel: &str, kind: Reward) -> Result<String, String> {
+/// O pacote do bônus a resgatar: o do custo pedido ou, sem pedido (o resgate sozinho), o maior que o saldo
+/// paga; nenhum cabe: o mais barato, para o erro dizer quanto falta.
+fn package(info: &ChannelInfo, kind: Reward, cost: Option<i64>) -> Option<RewardInfo> {
+    let mut list: Vec<&RewardInfo> = info.rewards.iter().filter(|r| r.kind == kind).collect();
+    if let Some(cost) = cost {
+        return list.into_iter().find(|r| r.cost == cost).cloned();
+    }
+    list.sort_by_key(|r| (r.blocked.is_some(), r.cost));
+    let points = if info.owner { i64::MAX } else { info.points.unwrap_or(0) };
+    list.iter().filter(|r| r.blocked.is_none() && r.cost <= points).max_by_key(|r| r.cost).or(list.first()).map(|r| (*r).clone())
+}
+
+pub async fn redeem(app: &AppHandle, account: &str, id: Uuid, site: Site, channel: &str, kind: Reward, cost: Option<i64>) -> Result<String, String> {
     let info = channel_info(app, id, site, channel).ok_or("o saldo deste canal ainda não foi lido")?;
-    let reward = info.rewards.iter().find(|r| r.kind == kind).cloned().ok_or("o canal não tem este bônus")?;
+    let reward = package(&info, kind, cost).ok_or("o canal não tem este bônus")?;
     if let Some(blocked) = &reward.blocked {
         return Err(format!("bônus {blocked}"));
     }
