@@ -9,9 +9,10 @@ use tauri::{AppHandle, Manager, Runtime, Webview, WebviewBuilder};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 use webview2_com::{
-    take_pwstr, CallDevToolsProtocolMethodCompletedHandler, GetCookiesCompletedHandler,
+    take_pwstr, CallDevToolsProtocolMethodCompletedHandler, DevToolsProtocolEventReceivedEventHandler, GetCookiesCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2, ICoreWebView2Settings2, ICoreWebView2_2, ICoreWebView2_8, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+        ICoreWebView2, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, ICoreWebView2Settings2, ICoreWebView2_11,
+        ICoreWebView2_2, ICoreWebView2_8, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
     },
     WebResourceRequestedEventHandler,
 };
@@ -76,38 +77,40 @@ pub fn attach(webview: &Webview, page: Page) {
 }
 
 /// A Twitch recusa o login ("Não há suporte para seu navegador") quando os client hints trazem a marca
-/// "Microsoft Edge WebView2". Fica a mesma identificação do Edge, sem essa marca.
+/// "Microsoft Edge WebView2". Fica a mesma identificação do Edge, sem essa marca, na página e em cada
+/// iframe de outro site e worker (processos à parte): a checagem anti-robô da Twitch roda num iframe
+/// (k.twitchcdn.net) e estranha também marcas diferentes entre ele e a página.
 unsafe fn hide_webview_brand(core: &ICoreWebView2) -> windows::core::Result<()> {
-    let settings = unsafe { core.Settings()? }.cast::<ICoreWebView2Settings2>()?;
-    let mut text = PWSTR::null();
-    unsafe { settings.UserAgent(&mut text)? };
-    let user_agent = take_pwstr(text);
-    let full = user_agent.split("Chrome/").nth(1).and_then(|v| v.split_whitespace().next()).unwrap_or("0.0.0.0").to_owned();
-    let major = full.split('.').next().unwrap_or("0").to_owned();
-    let brands = |version: &str| {
-        serde_json::json!([
-            { "brand": "Chromium", "version": version },
-            { "brand": "Microsoft Edge", "version": version },
-            { "brand": "Not-A.Brand", "version": if version.contains('.') { "99.0.0.0" } else { "99" } },
-        ])
-    };
-    let params = serde_json::json!({
-        "userAgent": user_agent,
-        "userAgentMetadata": {
-            "brands": brands(&major),
-            "fullVersionList": brands(&full),
-            "platform": "Windows",
-            "platformVersion": "19.0.0",
-            "architecture": "x86",
-            "bitness": "64",
-            "model": "",
-            "mobile": false,
-        },
-    });
-    // A página pode ter começado a carregar antes de a troca valer (o 1º pedido sai com a marca, e a
-    // Twitch guarda a recusa): o que já não é about:blank nem o jogo recarrega com a identificação nova.
+    let params = unsafe { brand_override(core)? };
+    let sessions = core.cast::<ICoreWebView2_11>()?;
+    let receiver = unsafe { core.GetDevToolsProtocolEventReceiver(&HSTRING::from("Target.attachedToTarget"))? };
+    let child_params = params.clone();
+    // Cada frame ou worker novo nasce parado (waitForDebuggerOnStart) até receber a identificação.
+    let on_attached = DevToolsProtocolEventReceivedEventHandler::create(Box::new(move |_, args| {
+        let Some(args) = args else { return Ok(()) };
+        let mut json = PWSTR::null();
+        unsafe { args.ParameterObjectAsJson(&mut json)? };
+        let event: serde_json::Value = serde_json::from_str(&take_pwstr(json)).unwrap_or_default();
+        let Some(session) = event["sessionId"].as_str() else { return Ok(()) };
+        let session = HSTRING::from(session);
+        for (method, body) in [
+            ("Network.setUserAgentOverride", child_params.as_str()),
+            ("Target.setAutoAttach", AUTO_ATTACH),
+            ("Runtime.runIfWaitingForDebugger", "{}"),
+        ] {
+            let _ = unsafe {
+                sessions.CallDevToolsProtocolMethodForSession(&session, &HSTRING::from(method), &HSTRING::from(body), &ignore())
+            };
+        }
+        Ok(())
+    }));
+    let mut token = 0i64;
+    unsafe { receiver.add_DevToolsProtocolEventReceived(&on_attached, &mut token)? };
+    unsafe { core.CallDevToolsProtocolMethod(&HSTRING::from("Target.setAutoAttach"), &HSTRING::from(AUTO_ATTACH), &ignore())? };
+    // A página pode ter começado a carregar antes de a troca valer (o 1º pedido sai com a marca): o que já
+    // não é about:blank nem o jogo recarrega com a identificação nova.
     let page = core.clone();
-    let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, _| {
+    let reload = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, _| {
         match result {
             Err(err) => eprintln!("[webview2] identificação do navegador: {}", err.message()),
             Ok(()) => {
@@ -122,13 +125,44 @@ unsafe fn hide_webview_brand(core: &ICoreWebView2) -> windows::core::Result<()> 
         }
         Ok(())
     }));
-    unsafe {
-        core.CallDevToolsProtocolMethod(
-            &HSTRING::from("Network.setUserAgentOverride"),
-            &HSTRING::from(params.to_string()),
-            &handler,
-        )
-    }
+    unsafe { core.CallDevToolsProtocolMethod(&HSTRING::from("Network.setUserAgentOverride"), &HSTRING::from(params), &reload) }
+}
+
+const AUTO_ATTACH: &str = r#"{"autoAttach":true,"waitForDebuggerOnStart":true,"flatten":true}"#;
+
+fn ignore() -> ICoreWebView2CallDevToolsProtocolMethodCompletedHandler {
+    CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|_, _| Ok(())))
+}
+
+/// Os parâmetros do `Network.setUserAgentOverride`: a identificação do próprio WebView2, sem a marca dele.
+unsafe fn brand_override(core: &ICoreWebView2) -> windows::core::Result<String> {
+    let settings = unsafe { core.Settings()? }.cast::<ICoreWebView2Settings2>()?;
+    let mut text = PWSTR::null();
+    unsafe { settings.UserAgent(&mut text)? };
+    let user_agent = take_pwstr(text);
+    let full = user_agent.split("Chrome/").nth(1).and_then(|v| v.split_whitespace().next()).unwrap_or("0.0.0.0").to_owned();
+    let major = full.split('.').next().unwrap_or("0").to_owned();
+    let brands = |version: &str| {
+        serde_json::json!([
+            { "brand": "Chromium", "version": version },
+            { "brand": "Microsoft Edge", "version": version },
+            { "brand": "Not-A.Brand", "version": if version.contains('.') { "99.0.0.0" } else { "99" } },
+        ])
+    };
+    Ok(serde_json::json!({
+        "userAgent": user_agent,
+        "userAgentMetadata": {
+            "brands": brands(&major),
+            "fullVersionList": brands(&full),
+            "platform": "Windows",
+            "platformVersion": "19.0.0",
+            "architecture": "x86",
+            "bitness": "64",
+            "model": "",
+            "mobile": false,
+        },
+    })
+    .to_string())
 }
 
 unsafe fn block_ads(core: &ICoreWebView2) -> windows::core::Result<()> {
