@@ -212,7 +212,7 @@ async fn menu_over_webviews(app: &AppHandle) {
     act(app, format!("acc:power:{third}")).await;
     on_main(app, move |app| crate::accounts::rename(app, first, "Main")).await;
     let _ = wait_loaded(app, first).await;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
     let shot = deck::data_dir(app).join("deck.png");
     let window_number = on_main(app, |app| {
         let window = app.get_window("main")?;
@@ -230,6 +230,13 @@ async fn menu_over_webviews(app: &AppHandle) {
             .status();
         println!("[selftest] janela {number} em {} ({status:?})", shot.display());
     }
+    act(app, "deck:layout:focus".into()).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    if let Some(number) = window_number {
+        let shot = deck::data_dir(app).join("deck-focus.png");
+        let _ = std::process::Command::new("screencapture").args(["-x", "-o", "-l", &number.to_string()]).arg(&shot).status();
+    }
+    act(app, "deck:layout:grid".into()).await;
     act(app, format!("acc:restock:{first}")).await;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let restock = app

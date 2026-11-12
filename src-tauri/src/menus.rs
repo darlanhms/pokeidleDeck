@@ -94,7 +94,17 @@ pub fn app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         &item(app, "deck:zoom:reset", "Zoom 100%", true, Some("CmdOrCtrl+0"))?,
         &PredefinedMenuItem::separator(app)?,
         &item(app, "deck:fullscreen", "Tela cheia", true, Some("F11"))?,
+        &PredefinedMenuItem::separator(app)?,
     ])?;
+    for (index, account) in app.state::<Deck>().accounts().iter().enumerate() {
+        view.append(&item(
+            app,
+            format!("deck:focus:{}", index + 1),
+            &format!("Ampliar {}", account.name),
+            true,
+            Some(&format!("CmdOrCtrl+Alt+{}", index + 1)),
+        )?)?;
+    }
     let window = Submenu::with_items(
         app,
         "Janela",
@@ -112,8 +122,8 @@ pub fn app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 pub fn sync_app_menu(app: &AppHandle) {
     let signature = app.state::<Deck>().read(|c| {
         format!(
-            "{}|{:?}|{:?}|{}",
-            c.accounts.len(),
+            "{:?}|{:?}|{:?}|{}",
+            c.accounts.iter().map(|a| &a.name).collect::<Vec<_>>(),
             c.removed.iter().map(|a| (a.id, &a.name)).collect::<Vec<_>>(),
             c.layout,
             c.stacked
@@ -140,19 +150,15 @@ fn popup_at(app: &AppHandle, window: &Window, menu: &Menu<Wry>, x: f64, y: f64) 
 #[tauri::command]
 pub fn deck_menu(app: AppHandle, window: Window, x: f64, y: f64) -> Result<(), String> {
     let build = || -> tauri::Result<Menu<Wry>> {
-        let can_add = app.state::<Deck>().read(|c| c.accounts.len() < MAX_ACCOUNTS);
-        let menu = Menu::with_items(
+        let (stacked, count) = app.state::<Deck>().read(|c| (c.stacked, c.accounts.len()));
+        Menu::with_items(
             &app,
             &[
-                &item(&app, "deck:add", "+ Nova conta", can_add, None)?,
                 &restore_submenu(&app)?,
                 &PredefinedMenuItem::separator(&app)?,
+                &CheckMenuItem::with_id(&app, "deck:stack", "Duas contas empilhadas", count == 2, stacked, None::<&str>)?,
             ],
-        )?;
-        for entry in layout_items(&app, false)? {
-            menu.append(&entry)?;
-        }
-        Ok(menu)
+        )
     };
     let menu = build().map_err(|e| e.to_string())?;
     popup_at(&app, &window, &menu, x, y)
@@ -317,6 +323,14 @@ pub fn dispatch(app: &AppHandle, action: &str) {
             deck::refresh(app);
         }
         (Some("deck"), Some("fullscreen")) => toggle_fullscreen(app),
+        (Some("deck"), Some("focus")) => {
+            let index = rest.and_then(|r| r.parse::<usize>().ok()).and_then(|n| n.checked_sub(1));
+            let id = index.and_then(|i| deck.read(|c| c.accounts.get(i).map(|a| a.id)));
+            if let Some(id) = id {
+                deck.update(|c| c.focus(id));
+                deck::refresh(app);
+            }
+        }
         (Some("deck"), Some("ultra")) => automation::set_ultra(app, !deck.read(|c| c.ultra)),
         (Some("deck"), Some("motion")) => automation::set_reduce_motion(app, !deck.read(|c| c.reduce_motion)),
         (Some("deck"), Some("echo")) => automation::set_echo(app, !app.state::<automation::Automation>().echo()),

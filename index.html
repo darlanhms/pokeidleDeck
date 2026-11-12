@@ -10,27 +10,36 @@
   <body>
     <header id="top">
       <strong class="brand">PokeIdle Deck</strong>
-      <div class="segmented" id="layouts">
-        <button type="button" data-layout="grid" title="As contas em grade">Grade</button>
-        <button type="button" data-layout="columns" title="As contas lado a lado">Colunas</button>
-        <button type="button" data-layout="focus" title="Uma conta ocupando o deck (as outras continuam rodando escondidas)">Ampliada</button>
+      <div class="layouts" role="group" aria-label="Layout das contas">
+        <button type="button" data-layout="grid" aria-label="Grade" title="Grade (⌘1)"></button>
+        <button type="button" data-layout="columns" aria-label="Colunas" title="Colunas (⌘2)"></button>
+        <button type="button" data-layout="focus" aria-label="Uma ampliada" title="Uma ampliada; as outras seguem rodando escondidas (⌘3)"></button>
       </div>
-      <div id="account-buttons"></div>
-      <button type="button" id="accounts-menu" class="with-icon">Contas</button>
-      <button type="button" id="echo" class="with-icon" title="Eco: um clique numa conta se repete nas outras (no mesmo botão). O que se digita não se repete.">Eco</button>
-      <div class="segmented" id="ultra-group">
-        <button type="button" id="ultra" class="with-icon" title="ULTRA em todas as contas: o Modo ULTRA Economia do jogo. O jogo sai da tela e fica só a caixa com XP, ouro, drops e shinies; a caça continua.">ULTRA</button>
-        <button type="button" id="ultra-menu" class="icon-only" title="Opções do ULTRA e menos animações"></button>
-      </div>
+      <nav id="tabs" aria-label="Conta ampliada" hidden></nav>
+      <button type="button" id="add" title="Nova conta (⌘N)">Nova conta</button>
       <span class="spacer"></span>
-      <div class="segmented" id="zoom">
-        <button type="button" id="zoom-out" title="Diminuir o zoom de todas as contas">−</button>
-        <button type="button" id="zoom-menu" title="Zoom de todas as contas">Zoom 100%</button>
-        <button type="button" id="zoom-in" title="Aumentar o zoom de todas as contas">+</button>
+      <button type="button" id="echo" class="pill" title="Eco: um clique numa conta se repete nas outras (no mesmo botão). O que se digita não se repete."><span class="state"></span>Eco</button>
+      <div class="group split">
+        <button type="button" id="ultra" class="pill" title="ULTRA em todas as contas: o Modo ULTRA Economia do jogo. O jogo sai da tela e fica só a caixa com XP, ouro, drops e shinies; a caça continua."><span class="state"></span>ULTRA</button>
+        <button type="button" id="ultra-menu" class="pill" aria-label="Opções do ULTRA e menos animações"></button>
       </div>
-      <button type="button" id="fullscreen" class="icon-only" title="Tela cheia (F11)"></button>
+      <span class="divider"></span>
+      <div class="zoom" role="group" aria-label="Zoom de todas as contas">
+        <button type="button" id="zoom-out" aria-label="Diminuir o zoom">−</button>
+        <button type="button" id="zoom-menu" title="Escolher o zoom de todas as contas">100%</button>
+        <button type="button" id="zoom-in" aria-label="Aumentar o zoom">+</button>
+      </div>
+      <button type="button" id="deck-more" class="square" aria-label="Mais opções do deck" title="Restaurar conta removida, empilhar"></button>
+      <button type="button" id="fullscreen" class="square" aria-label="Tela cheia" title="Tela cheia (F11)"></button>
     </header>
     <div id="panes"></div>
-    <footer id="bottom"><span id="summary"></span><span class="spacer"></span><span id="kick"></span></footer>
+    <footer id="bottom">
+      <span id="summary"></span>
+      <span class="divider"></span>
+      <span id="memory" title="Memória do navegador embutido (a mesma do Monitor de Atividade)">RAM: medindo…</span>
+      <span id="kick"></span>
+      <span class="spacer"></span>
+      <button type="button" id="last-buy" hidden></button>
+    </footer>
   </body>
 </html>

@@ -18,8 +18,8 @@ use tauri::{
 };
 use uuid::Uuid;
 
-pub const TOP_BAR: f64 = 36.0;
-pub const BOTTOM_BAR: f64 = 24.0;
+pub const TOP_BAR: f64 = 46.0;
+pub const BOTTOM_BAR: f64 = 30.0;
 pub const HEADER: f64 = 34.0;
 const GAP: f64 = 4.0;
 const DEFAULT_SIZE: (f64, f64) = (1400.0, 900.0);
