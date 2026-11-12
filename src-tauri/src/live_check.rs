@@ -10,7 +10,11 @@ pub const TWITCH_CLIENT_ID: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const TIMEOUT: Duration = Duration::from_secs(15);
 
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout(TIMEOUT).user_agent(USER_AGENT).build()
+    let builder = ureq::AgentBuilder::new().timeout(TIMEOUT).user_agent(USER_AGENT);
+    match native_tls::TlsConnector::new() {
+        Ok(tls) => builder.tls_connector(std::sync::Arc::new(tls)).build(),
+        Err(_) => builder.build(),
+    }
 }
 
 const KICK_CHECKER: &str = "kick-check";
@@ -65,12 +69,10 @@ async fn kick_checker(app: &AppHandle, first: &str) -> Option<Webview> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let handle = app.clone();
         app.run_on_main_thread(move || {
-            let mtm = objc2::MainThreadMarker::new().expect("main thread");
             let created = crate::deck::main_window(&handle).and_then(|window| {
                 let webview = window
                     .add_child(
-                        WebviewBuilder::new(KICK_CHECKER, WebviewUrl::External(url))
-                            .with_webview_configuration(webkit::configuration(mtm, None, false, false))
+                        webkit::prepare(&handle, WebviewBuilder::new(KICK_CHECKER, WebviewUrl::External(url)), None, Default::default())
                             .user_agent(USER_AGENT),
                         LogicalPosition::new(0.0, 0.0),
                         LogicalSize::new(10.0, 10.0),

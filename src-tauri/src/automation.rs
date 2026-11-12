@@ -32,6 +32,7 @@ const SET_ULTRA_JS: &str = "const on = ON;\n\
     document.querySelector('#btn-config')?.click(); document.querySelector('#cfg-ultra')?.click();\n\
     return ultra();";
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// "ligado" (na tela), "escolhido" (liga ao entrar no jogo), "normal" ou "fora" (fora do jogo).
 pub const ULTRA_STATE_JS: &str = "return document.documentElement.classList.contains('modo-ultra') ? 'ligado'\n\
     : localStorage.getItem('cfg-ultra') === '1' ? 'escolhido'\n\

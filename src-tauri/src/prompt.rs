@@ -71,7 +71,7 @@ pub fn prompt_info(app: AppHandle) -> Option<PromptInfo> {
 /// do conteúdo e cortaria os botões.
 #[tauri::command]
 pub fn prompt_fit(window: WebviewWindow, height: f64) {
-    let inset = window.ns_window().map_or(0.0, deck::titlebar_inset_of);
+    let inset = deck::titlebar_inset(&window.as_ref().window());
     let _ = window.set_size(tauri::LogicalSize::new(SIZE.0, height.ceil() + inset));
 }
 

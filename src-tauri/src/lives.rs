@@ -7,9 +7,10 @@ use crate::{
     automation,
     config::{LiveLimit, Site, SlotChoice},
     deck::{self, Deck},
-    live_check, official, webkit,
+    live_check, official,
+    page::Page,
+    webkit,
 };
-use objc2::MainThreadMarker;
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
@@ -170,15 +171,13 @@ pub fn open(app: &AppHandle, id: Uuid) {
         sites.push((None, Some(Site::Kick)));
         sites.extend(std::iter::repeat_n((Some(Site::Kick), None), kick));
     }
-    let mtm = MainThreadMarker::new().expect("lives criadas fora da main thread");
+    let player = Page { autoplay: true, keep_running_hidden: true, block_ads: true };
     let mut slots = Vec::new();
     for (index, (site, login)) in sites.into_iter().enumerate() {
         let label = format!("live-{}-{index}", id.simple());
         let handle_label = label.clone();
-        let config = webkit::configuration(mtm, Some(id), true, true);
-        webkit::add_block_list(&config);
-        let builder = WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()))
-            .with_webview_configuration(config)
+        let builder = WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()));
+        let builder = webkit::prepare(app, builder, Some(id), player)
             .user_agent(USER_AGENT)
             .background_throttling(BackgroundThrottlingPolicy::Disabled)
             .initialization_script(VISIBLE_JS)
@@ -198,8 +197,8 @@ pub fn open(app: &AppHandle, id: Uuid) {
             });
         match window.add_child(builder, LogicalPosition::new(0.0, TAB_BAR), LogicalSize::new(640.0, 360.0)) {
             Ok(webview) => {
+                webkit::attach(&webview, player);
                 webkit::set_page_muted(&webview, true);
-                webkit::disable_occlusion_detection(&webview);
             }
             Err(err) => eprintln!("[lives] não criou o player {label}: {err}"),
         }
@@ -285,7 +284,7 @@ fn layout(app: &AppHandle, id: Uuid) {
     let Some(window) = app.get_window(&window_label(id)) else { return };
     let (Ok(scale), Ok(size)) = (window.scale_factor(), window.inner_size()) else { return };
     let size = size.to_logical::<f64>(scale);
-    let inset = window.ns_window().map_or(0.0, deck::titlebar_inset_of);
+    let inset = deck::titlebar_inset(&window);
     if let Some(ui) = app.get_webview(&ui_label(id)) {
         let _ = ui.set_bounds(Rect {
             position: LogicalPosition::new(0.0, inset).into(),
@@ -729,6 +728,7 @@ pub fn reveal_login(app: &AppHandle, id: Uuid, site: Site) {
     reveal(app, id, 0);
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// (site, canal, endereço, tocando) de cada vaga da janela da conta, para o autoteste.
 pub fn snapshot(app: &AppHandle, id: Uuid) -> Vec<(Option<Site>, Option<String>, Option<String>, Option<bool>)> {
     let lives = app.state::<Lives>();
@@ -739,6 +739,7 @@ pub fn snapshot(app: &AppHandle, id: Uuid) -> Vec<(Option<Site>, Option<String>,
         .unwrap_or_default()
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// Quantas páginas de pontos estão abertas na conta (autoteste).
 pub fn chat_labels(app: &AppHandle, id: Uuid) -> Vec<String> {
     app.state::<Lives>().windows.lock().unwrap().get(&id).map(|w| w.chats.iter().map(|c| c.label.clone()).collect()).unwrap_or_default()
@@ -805,18 +806,15 @@ pub fn set_points(app: &AppHandle, id: Uuid, on: bool) {
     let mut chats = Vec::new();
     if on {
         let Some(window) = app.get_window(&window_label(id)) else { return };
-        let mtm = MainThreadMarker::new().expect("pontos abertos fora da main thread");
+        let page = Page { autoplay: false, keep_running_hidden: true, block_ads: true };
         for (index, (site, channel)) in lives_open.iter().enumerate() {
             let label = format!("chat-{}-{index}", id.simple());
-            let config = webkit::configuration(mtm, Some(id), false, true);
-            webkit::add_block_list(&config);
             let site = *site;
             let url: tauri::Url = match chat_url(site, channel).parse() {
                 Ok(url) => url,
                 Err(_) => continue,
             };
-            let builder = WebviewBuilder::new(&label, WebviewUrl::External(url))
-                .with_webview_configuration(config)
+            let builder = webkit::prepare(app, WebviewBuilder::new(&label, WebviewUrl::External(url)), Some(id), page)
                 .user_agent(USER_AGENT)
                 .initialization_script(PAUSE_JS)
                 .on_page_load(move |webview, payload| {
@@ -829,6 +827,7 @@ pub fn set_points(app: &AppHandle, id: Uuid, on: bool) {
                     }
                 });
             if let Ok(webview) = window.add_child(builder, LogicalPosition::new(0.0, TAB_BAR), LogicalSize::new(CHAT_COLUMN, 400.0)) {
+                webkit::attach(&webview, page);
                 webkit::set_page_muted(&webview, true);
                 chats.push(Chat { label, site });
             }

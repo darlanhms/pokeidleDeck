@@ -12,8 +12,9 @@ use objc2_web_kit::{
     WKAudiovisualMediaTypes, WKContentWorld, WKWebView, WKWebViewConfiguration, WKWebsiteDataRecord,
     WKWebsiteDataStore,
 };
+use crate::page::{Page, BLOCKED};
 use std::{ptr::NonNull, sync::Mutex, time::Duration};
-use tauri::{AppHandle, Webview};
+use tauri::{AppHandle, Runtime, Webview, WebviewBuilder};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -35,6 +36,24 @@ impl<T> Reply<T> {
 
 fn ns_uuid(id: Uuid) -> Retained<NSUUID> {
     NSUUID::from_bytes(*id.as_bytes())
+}
+
+/// O data store da conta (ou um efêmero, sem `store`) e o resto de `page`, na configuração do WKWebView.
+/// Só na main thread.
+pub fn prepare<R: Runtime>(_app: &AppHandle, builder: WebviewBuilder<R>, store: Option<Uuid>, page: Page) -> WebviewBuilder<R> {
+    let mtm = MainThreadMarker::new().expect("webview criada fora da main thread");
+    let config = configuration(mtm, store, page.autoplay, page.keep_running_hidden);
+    if page.block_ads {
+        add_block_list(&config);
+    }
+    builder.with_webview_configuration(config)
+}
+
+/// Depois de criada: com `keep_running_hidden`, o WebKit também deixa de olhar se a janela está coberta.
+pub fn attach(webview: &Webview, page: Page) {
+    if page.keep_running_hidden && page.autoplay {
+        disable_occlusion_detection(webview);
+    }
 }
 
 /// Configuração com o data store persistente da conta (ou um efêmero, sem `store`). Passar a
@@ -93,10 +112,7 @@ unsafe fn keep_running_when_hidden(config: &WKWebViewConfiguration) {
 pub async fn call_async(webview: &Webview, script: &str, timeout: Duration) -> Result<String, String> {
     let (reply, rx) = Reply::<Result<String, String>>::new();
     // O valor volta como texto para não depender da conversão JS → NSDictionary do WebKit.
-    let body = format!(
-        "const __deckValue = await (async () => {{\n{script}\n}})();\n\
-         return JSON.stringify(__deckValue === undefined ? null : __deckValue);"
-    );
+    let body = crate::page::async_body(script);
     webview
         .with_webview(move |platform| unsafe {
             let webview = &*(platform.inner() as *const WKWebView);
@@ -242,17 +258,6 @@ thread_local! {
     static BLOCK_LIST: std::cell::RefCell<Option<Retained<objc2_web_kit::WKContentRuleList>>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Anúncios e rastreadores das lives (a mesma lista do original). Vídeo, Kick, Twitch e o Cloudflare
-/// (anti-robô) passam.
-const BLOCKED: [&str; 29] = [
-    "googlesyndication.com", "doubleclick.net", "googleadservices.com", "adtrafficquality.google",
-    "imasdk.googleapis.com", "openx.net", "openxcdn.net", "criteo.com", "criteo.net", "dnacdn.net",
-    "creativecdn.com", "id5-sync.com", "amazon-adsystem.com", "googletagmanager.com",
-    "google-analytics.com", "tiktok.com", "tiktokw.us", "facebook.net", "facebook.com",
-    "analytics.yahoo.com", "quora.com", "litix.io", "datazoom.io", "datadoghq-browser-agent.com",
-    "cloudflareinsights.com", "scorecardresearch.com", "onetrust.com", "stripe.com", "stripe.network",
-];
-
 fn block_rules() -> String {
     let rules: Vec<serde_json::Value> = BLOCKED
         .iter()
@@ -296,7 +301,7 @@ pub async fn compile_block_list(app: &AppHandle) {
     }
 }
 
-pub fn add_block_list(config: &WKWebViewConfiguration) {
+fn add_block_list(config: &WKWebViewConfiguration) {
     BLOCK_LIST.with(|b| {
         if let Some(list) = b.borrow().as_ref() {
             unsafe { config.userContentController().addContentRuleList(list) };
@@ -333,4 +338,18 @@ pub fn disable_occlusion_detection(webview: &Webview) {
 unsafe fn responds(object: &AnyObject, selector: Sel) -> bool {
     let responds: Bool = unsafe { msg_send![object, respondsToSelector: selector] };
     responds.as_bool()
+}
+
+/// O processo da página (`-[WKWebView _webProcessIdentifier]`, privado). 0 = página ainda sem processo.
+pub async fn web_process(webview: &Webview) -> Option<u32> {
+    let (tx, rx) = oneshot::channel();
+    webview
+        .with_webview(move |platform| unsafe {
+            let object = &*(platform.inner() as *const AnyObject);
+            let pid: i32 = if responds(object, sel!(_webProcessIdentifier)) { msg_send![object, _webProcessIdentifier] } else { 0 };
+            let _ = tx.send(pid);
+        })
+        .ok()?;
+    let pid = tokio::time::timeout(Duration::from_secs(2), rx).await.ok()?.ok()?;
+    (pid > 0).then_some(pid as u32)
 }

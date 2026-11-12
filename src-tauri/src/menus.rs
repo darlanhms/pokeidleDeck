@@ -135,7 +135,15 @@ pub fn sync_app_menu(app: &AppHandle) {
     if last.as_deref() == Some(signature.as_str()) {
         return;
     }
-    match app_menu(app).and_then(|menu| app.set_menu(menu)) {
+    // No Windows a barra de menus é de cada janela: só a do deck tem (as de lives e a central, não).
+    #[cfg(target_os = "macos")]
+    let applied = app_menu(app).and_then(|menu| app.set_menu(menu));
+    #[cfg(not(target_os = "macos"))]
+    let applied = match deck::main_window(app) {
+        Some(window) => app_menu(app).and_then(|menu| window.set_menu(menu)),
+        None => return,
+    };
+    match applied {
         Ok(_) => *last = Some(signature),
         Err(err) => eprintln!("[deck] barra de menus: {err}"),
     }

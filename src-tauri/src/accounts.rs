@@ -4,9 +4,9 @@ use crate::{
     automation, lives,
     config::{Account, MAX_ACCOUNTS},
     deck::{self, Deck, Status},
+    page::Page,
     prompt, webkit,
 };
-use objc2::MainThreadMarker;
 use std::time::Duration;
 use tauri::{
     utils::config::BackgroundThrottlingPolicy, webview::PageLoadEvent, AppHandle, LogicalPosition,
@@ -39,12 +39,12 @@ fn webview(app: &AppHandle, id: Uuid) -> Option<Webview> {
 }
 
 pub fn spawn(window: &Window, account: &Account) -> tauri::Result<Webview> {
-    let mtm = MainThreadMarker::new().expect("webview de conta criada fora da main thread");
     let id = account.id;
+    let page = Page { autoplay: false, keep_running_hidden: true, block_ads: false };
     let reduce_motion = window.app_handle().state::<Deck>().read(|c| c.reduce_motion);
     let motion = automation::MOTION_JS.replace("__DECK_REDUCE_MOTION__", if reduce_motion { "true" } else { "false" });
-    let builder = WebviewBuilder::new(label(&id), WebviewUrl::External(GAME_URL.parse().unwrap()))
-        .with_webview_configuration(webkit::configuration(mtm, Some(id), false, true))
+    let builder = WebviewBuilder::new(label(&id), WebviewUrl::External(GAME_URL.parse().unwrap()));
+    let builder = webkit::prepare(window.app_handle(), builder, Some(id), page)
         .user_agent(USER_AGENT)
         .background_throttling(BackgroundThrottlingPolicy::Disabled)
         .initialization_script(KEYS_JS)
@@ -74,6 +74,7 @@ pub fn spawn(window: &Window, account: &Account) -> tauri::Result<Webview> {
             deck::refresh_later(app);
         });
     let webview = window.add_child(builder, LogicalPosition::new(0.0, 0.0), LogicalSize::new(10.0, 10.0))?;
+    webkit::attach(&webview, page);
     if account.muted {
         webkit::set_page_muted(&webview, true);
     }

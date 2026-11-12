@@ -246,14 +246,21 @@ pub fn save_window(app: &AppHandle) {
 
 /// Altura da barra de título que fica por cima do conteúdo. A janela do Tauri usa conteúdo de
 /// tamanho cheio, e o WKWebView que fica embaixo da barra se desloca sozinho, desalinhando o deck.
-fn titlebar_inset(window: &Window) -> f64 {
-    window.ns_window().map_or(0.0, titlebar_inset_of)
-}
-
-pub fn titlebar_inset_of(pointer: *mut std::ffi::c_void) -> f64 {
-    let ns_window = unsafe { &*(pointer as *const objc2_app_kit::NSWindow) };
-    let Some(content) = ns_window.contentView() else { return 0.0 };
-    (content.frame().size.height - ns_window.contentLayoutRect().size.height).max(0.0)
+/// No Windows a barra de título fica fora do conteúdo.
+pub fn titlebar_inset(window: &Window) -> f64 {
+    #[cfg(target_os = "macos")]
+    {
+        window.ns_window().map_or(0.0, |pointer| {
+            let ns_window = unsafe { &*(pointer as *const objc2_app_kit::NSWindow) };
+            let Some(content) = ns_window.contentView() else { return 0.0 };
+            (content.frame().size.height - ns_window.contentLayoutRect().size.height).max(0.0)
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        0.0
+    }
 }
 
 pub fn view(app: &AppHandle) -> Option<DeckView> {

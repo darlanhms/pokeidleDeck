@@ -22,7 +22,7 @@
   --accent: #f0a63a;
   --accent-bg: #3a2c14;
   --accent-text: #ffd08a;
-  font: 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font: 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
   color: var(--text);
   background: var(--back);
 }

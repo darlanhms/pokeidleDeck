@@ -1,11 +1,15 @@
-#[cfg(not(target_os = "macos"))]
-compile_error!("O PokeIdle Deck só roda no macOS 14+.");
+#[cfg(not(any(target_os = "macos", windows)))]
+compile_error!("O PokeIdle Deck roda no macOS 14+ e no Windows 10/11.");
 
 mod accounts;
 mod automation;
 mod central;
 mod config;
 mod deck;
+#[cfg(target_os = "macos")]
+mod kick;
+#[cfg(not(target_os = "macos"))]
+#[path = "kick_stub.rs"]
 mod kick;
 mod layout;
 mod live_check;
@@ -13,10 +17,19 @@ mod lives;
 mod lives_config;
 mod memory;
 mod official;
+mod page;
 mod points;
 mod menus;
 mod prompt;
+#[cfg(target_os = "macos")]
 mod selftest;
+#[cfg(not(target_os = "macos"))]
+#[path = "selftest_stub.rs"]
+mod selftest;
+#[cfg(target_os = "macos")]
+mod webkit;
+#[cfg(windows)]
+#[path = "webview2.rs"]
 mod webkit;
 
 use tauri::Manager;

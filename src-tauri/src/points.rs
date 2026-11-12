@@ -110,12 +110,8 @@ fn log_path(app: &AppHandle) -> PathBuf {
 
 /// "dd/MM/yy HH:mm" e "HH:mm" na hora local.
 fn clock() -> (String, String) {
-    let now = unsafe { libc::time(std::ptr::null_mut()) };
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&now, &mut tm) };
-    let hm = format!("{:02}:{:02}", tm.tm_hour, tm.tm_min);
-    let date = format!("{:02}/{:02}/{:02}", tm.tm_mday, tm.tm_mon + 1, tm.tm_year % 100);
-    (format!("{date} {hm}"), hm)
+    let now = chrono::Local::now();
+    (now.format("%d/%m/%y %H:%M").to_string(), now.format("%H:%M").to_string())
 }
 
 pub fn start(app: &AppHandle) {
@@ -236,6 +232,7 @@ async fn run(app: &AppHandle, site: Site) {
     lives::emit_summary(app);
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// Roda o script da Kick numa live com o token dado e devolve o objeto que ele responde (autoteste).
 pub async fn probe_kick(app: &AppHandle, label: &str, channel: &str, token: &str) -> Option<serde_json::Value> {
     let args = serde_json::json!({ "api": "https://kick.com", "channel": channel, "token": token, "word": word(Reward::Xp), "spend": false, "refund": null });
