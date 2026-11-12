@@ -106,7 +106,9 @@ fn read_bundle(dir: &Path) -> Result<Bundle, String> {
         // O que roda no mundo isolado é a ponte da lista, que o deck substitui por `BRIDGE_JS`.
         if entry.world.as_deref() == Some("MAIN") {
             for file in &entry.js {
-                scripts.push(read(file)?);
+                // No Windows os scripts de início entram também nos iframes (Cloudflare, anúncios): a extensão
+                // inteira rodaria em cada um. Os arquivos dela são IIFEs, então o bloco não muda o escopo.
+                scripts.push(format!("if (window.top === window) {{\n{}\n}}", read(file)?));
             }
         }
     }
