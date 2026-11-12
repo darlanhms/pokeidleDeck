@@ -9,62 +9,89 @@
   </head>
   <body class="dialog">
     <main>
-      <label class="check strong"><input type="checkbox" id="on" /> Recompra ligada nesta conta</label>
-      <p class="state" id="state"></p>
+      <section class="banner" id="banner">
+        <button type="button" class="switch big" role="switch" id="on" aria-label="Recompra ligada nesta conta"></button>
+        <div class="banner-text">
+          <strong id="banner-title">Recompra desligada</strong>
+          <span id="state"></span>
+        </div>
+      </section>
 
-      <fieldset>
-        <legend>Pokébola</legend>
-        <div class="row">
-          <label class="check"><input type="checkbox" id="balls-on" /> Recomprar</label>
-          <label>Qual: <select id="ball"></select></label>
+      <section class="gold-card">
+        <div class="gold-now">
+          <span>Ouro agora</span>
+          <strong id="gold">—</strong>
+        </div>
+        <label>Nunca abaixo de <input class="count" id="gold-floor" /></label>
+      </section>
+
+      <section class="item" aria-labelledby="balls-title">
+        <div class="item-head">
+          <button type="button" class="switch" role="switch" id="balls-on" aria-label="Recomprar pokébola"></button>
+          <strong id="balls-title">Pokébola</strong>
+          <span class="spacer"></span>
+          <label class="visually-hidden" for="ball">Qual pokébola</label>
+          <select id="ball"></select>
+        </div>
+        <div class="stock">
+          <div class="stock-line"><span id="balls-have">Na mochila —</span><span id="balls-rule"></span></div>
+          <div class="meter" id="balls-meter"><div class="fill"></div><div class="mark"></div></div>
         </div>
         <div class="row">
           <label>Manter <input class="count" id="balls-keep" /></label>
-          <label>Recomprar abaixo de <input class="count" id="balls-below" /></label>
+          <label>Comprar quando cair abaixo de <input class="count" id="balls-below" /></label>
         </div>
-        <p class="info" id="balls-info"></p>
-      </fieldset>
+      </section>
 
-      <fieldset>
-        <legend>Revives</legend>
-        <div class="row">
-          <label class="check"><input type="checkbox" id="revives-on" /> Recomprar (sempre o revive mais barato)</label>
+      <section class="item" aria-labelledby="revives-title">
+        <div class="item-head">
+          <button type="button" class="switch" role="switch" id="revives-on" aria-label="Recomprar revives"></button>
+          <strong id="revives-title">Revives</strong>
+          <span class="spacer"></span>
+          <span class="hint">Sempre o mais barato</span>
+        </div>
+        <div class="stock">
+          <div class="stock-line"><span id="revives-have">Na mochila —</span><span id="revives-rule"></span></div>
+          <div class="meter" id="revives-meter"><div class="fill"></div><div class="mark"></div></div>
         </div>
         <div class="row">
-          <label>Manter (todos os revives) <input class="count" id="revives-keep" /></label>
-          <label>Recomprar abaixo de <input class="count" id="revives-below" /></label>
+          <label>Manter <input class="count" id="revives-keep" /></label>
+          <label>Comprar quando cair abaixo de <input class="count" id="revives-below" /></label>
         </div>
         <p class="info" id="revives-info"></p>
-      </fieldset>
+      </section>
 
-      <fieldset>
-        <legend>Poções</legend>
-        <div class="row">
-          <label class="check"><input type="checkbox" id="potions-on" /> Recomprar</label>
-          <label>Qual comprar: <select id="potion"></select></label>
+      <section class="item" aria-labelledby="potions-title">
+        <div class="item-head">
+          <button type="button" class="switch" role="switch" id="potions-on" aria-label="Recomprar poções"></button>
+          <strong id="potions-title">Poções</strong>
+          <span class="spacer"></span>
+          <label class="visually-hidden" for="potion">Qual poção comprar</label>
+          <select id="potion"></select>
+        </div>
+        <div class="stock">
+          <div class="stock-line"><span id="potions-have">Na mochila —</span><span id="potions-rule"></span></div>
+          <div class="meter" id="potions-meter"><div class="fill"></div><div class="mark"></div></div>
         </div>
         <div class="row">
-          <label><span id="potions-keep-label">Manter (todas as poções)</span> <input class="count" id="potions-keep" /></label>
-          <label>Recomprar abaixo de <input class="count" id="potions-below" /></label>
+          <label><span id="potions-keep-label">Manter</span> <input class="count" id="potions-keep" /></label>
+          <label>Comprar quando cair abaixo de <input class="count" id="potions-below" /></label>
         </div>
-        <label class="check"><input type="checkbox" id="potion-first" /> Pôr a poção escolhida em 1º na fila da automação "Usar Poções"</label>
+        <label class="check"><input type="checkbox" id="potion-first" /> Pôr em 1º na fila do “Usar Poções”</label>
         <p class="info" id="potions-info"></p>
-      </fieldset>
+      </section>
 
-      <div class="row">
-        <label>Nunca deixar o ouro abaixo de <input class="count" id="gold-floor" /></label>
-        <span class="info" id="gold"></span>
-      </div>
-
-      <fieldset>
-        <legend>Registro</legend>
+      <section aria-labelledby="log-title">
+        <div class="log-head">
+          <strong id="log-title">Últimas compras</strong>
+          <button type="button" class="link" id="log-toggle">Ver registro completo</button>
+        </div>
         <pre id="log"></pre>
-      </fieldset>
+      </section>
 
       <p class="info">
-        Compra no Market do NPC, até 9.999 por vez, uma compra a cada 4 s, com a conta ligada no deck. Se o ouro não
-        der para tudo: poções, depois revives, depois a pokébola. A Golden Potion fica fora da soma das poções; escolhida em
-        "Qual comprar", a conta passa a ser só dela, por quantidade.
+        Compra no Market do NPC, até 9.999 por vez, uma a cada 4 s, com a conta ligada no deck. Ouro curto: poções,
+        depois revives, depois pokébola. A Golden Potion fica fora da soma das poções; escolhida, a conta é só dela.
       </p>
     </main>
   </body>

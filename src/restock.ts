@@ -66,8 +66,18 @@ function potionText(p: Offer): string {
 
 let config: Config | null = null;
 let status: Status | null = null;
+let fullLog = false;
 
-const checks = { on: $<HTMLInputElement>("on"), ballsOn: $<HTMLInputElement>("balls-on"), revivesOn: $<HTMLInputElement>("revives-on"), potionsOn: $<HTMLInputElement>("potions-on"), potionFirst: $<HTMLInputElement>("potion-first") };
+/** Os interruptores são botões com role="switch"; o estado fica em aria-checked. */
+const switches = {
+  on: $<HTMLButtonElement>("on"),
+  ballsOn: $<HTMLButtonElement>("balls-on"),
+  revivesOn: $<HTMLButtonElement>("revives-on"),
+  potionsOn: $<HTMLButtonElement>("potions-on"),
+};
+const isOn = (button: HTMLButtonElement) => button.getAttribute("aria-checked") === "true";
+const setSwitch = (button: HTMLButtonElement, on: boolean) => button.setAttribute("aria-checked", String(on));
+const potionFirst = $<HTMLInputElement>("potion-first");
 const counts = {
   ballsKeep: $<HTMLInputElement>("balls-keep"),
   ballsBelow: $<HTMLInputElement>("balls-below"),
@@ -98,11 +108,11 @@ function fill(select: HTMLSelectElement, options: { id: number; text: string }[]
 }
 
 function showConfig(c: Config) {
-  checks.on.checked = c.on;
-  checks.ballsOn.checked = c.balls.on;
-  checks.revivesOn.checked = c.revives.on;
-  checks.potionsOn.checked = c.potions.on;
-  checks.potionFirst.checked = c.potionFirst;
+  setSwitch(switches.on, c.on);
+  setSwitch(switches.ballsOn, c.balls.on);
+  setSwitch(switches.revivesOn, c.revives.on);
+  setSwitch(switches.potionsOn, c.potions.on);
+  potionFirst.checked = c.potionFirst;
   counts.ballsKeep.value = n(c.balls.keep);
   counts.ballsBelow.value = n(c.balls.below);
   counts.revivesKeep.value = n(c.revives.keep);
@@ -112,77 +122,98 @@ function showConfig(c: Config) {
   counts.goldFloor.value = n(c.goldFloor);
 }
 
+/** A barra do item: quanto tem, até onde mantém, e a marca do "comprar abaixo de". */
+function showStock(kind: "balls" | "revives" | "potions", rule: Rule, have: number | null) {
+  $(`${kind}-have`).replaceChildren("Na mochila ", Object.assign(document.createElement("strong"), { textContent: have === null ? "—" : n(have) }));
+  const low = have !== null && have < rule.below;
+  $(`${kind}-rule`).textContent = !rule.on
+    ? "não recompra"
+    : have === null
+      ? `mantém ${n(rule.keep)}, compra abaixo de ${n(rule.below)}`
+      : low
+        ? `abaixo do limite: comprando até ${n(rule.keep)}`
+        : `ok até cair abaixo de ${n(rule.below)}`;
+  const scale = Math.max(rule.keep, rule.below, have ?? 0, 1);
+  const meter = $(`${kind}-meter`);
+  meter.classList.toggle("low", low);
+  meter.querySelector<HTMLElement>(".fill")!.style.width = `${have === null ? 0 : (have / scale) * 100}%`;
+  meter.querySelector<HTMLElement>(".mark")!.style.left = `calc(${(rule.below / scale) * 100}% - 1px)`;
+  meter.role = "img";
+  meter.ariaLabel = have === null ? "Estoque ainda não lido" : `Na mochila ${n(have)} de ${n(rule.keep)}; compra abaixo de ${n(rule.below)}`;
+  meter.closest(".item")!.classList.toggle("disabled", !rule.on);
+}
+
 function showStatus() {
   if (!config) return;
-  $("potions-keep-label").textContent = config.potions.id === GOLDEN ? "Manter (só Golden Potion)" : "Manter (todas as poções)";
   const s = status;
   const connected = !!s?.connected;
-  const state = $("state");
-  state.className = `state ${!config.on ? "" : connected && !s?.paused ? "ok" : "warn"}`;
-  state.textContent = !config.on
-    ? "Desligada. Ligada, ela confere o estoque a cada segundo e compra o que faltar."
+  const golden = config.potions.id === GOLDEN;
+
+  const banner = $("banner");
+  banner.className = `banner ${!config.on ? "" : connected && !s?.paused ? "ok" : "warn"}`;
+  $("banner-title").textContent = config.on ? "Recompra ligada" : "Recompra desligada";
+  $("state").textContent = !config.on
+    ? "Ligada, ela confere o estoque a cada segundo e compra o que faltar."
     : !connected
-      ? "Ligada, esperando o jogo conectar (a conta precisa estar no jogo, não na tela de login)."
+      ? "Esperando o jogo conectar: a conta precisa estar no jogo, não na tela de login."
       : s?.paused
-        ? "Ligada, em pausa: 3 compras seguidas não deram certo (volta sozinha em 2 min; veja o registro)."
-        : `Ligada${s?.nick ? ` na conta ${s.nick}` : ""}.`;
+        ? "Em pausa: 3 compras seguidas não deram certo. Volta sozinha em 2 min; veja o registro."
+        : `Comprando${s?.nick ? ` na conta ${s.nick}` : ""} · confere a cada segundo`;
+  $("gold").textContent = connected && s ? n(s.gold ?? 0) : "—";
 
   const balls = s?.balls?.length ? s.balls : KNOWN_BALLS;
   fill(ball, balls.map((b) => ({ id: b.id, text: b.price > 0 ? `${b.name} · ${n(b.price)} ouro` : b.name ?? `bola ${b.id}` })), config.balls.id);
   const potions = s?.potions?.length ? s.potions : KNOWN_POTIONS;
-  fill(
-    potion,
-    [{ id: BEST_VALUE, text: "Melhor custo-benefício (automático)" }, ...potions.map((p) => ({ id: p.id, text: potionText(p) }))],
-    config.potions.id,
-  );
+  fill(potion, [{ id: BEST_VALUE, text: "Melhor custo-benefício (automático)" }, ...potions.map((p) => ({ id: p.id, text: potionText(p) }))], config.potions.id);
+  $("potions-keep-label").textContent = golden ? "Manter (só Golden)" : "Manter";
 
-  if (!connected || !s) {
-    $("balls-info").textContent = $("revives-info").textContent = $("potions-info").textContent = "Na mochila: —";
-    $("gold").textContent = "";
-  } else {
-    const chosenBall = s.balls?.find((b) => b.id === config!.balls.id);
-    $("balls-info").textContent = chosenBall ? `Na mochila: ${n(chosenBall.have)}` : "Essa pokébola não está à venda no NPC.";
-    const revives = s.revives ?? [];
-    $("revives-info").textContent =
-      `Na mochila: ${n(sum(revives))}` +
-      (revives.length ? ` (${revives.map((r) => `${r.name} ${n(r.have)}`).join(" · ")})\nCompra: ${revives[0].name}, ${n(revives[0].price)} ouro` : "");
-    const golden = s.potions?.find((p) => p.golden);
-    const lines =
-      config.potions.id === GOLDEN
-        ? [golden ? `Na mochila: ${n(golden.have)} Golden Potion (só ela conta)` : "A Golden Potion não está à venda no NPC."]
-        : [`Na mochila (todas, sem a Golden): ${n(sum(s.potions))}`];
-    if (config.potions.id === GOLDEN) {
-      // Por quantidade: o custo-benefício não vale para ela.
+  const chosenBall = connected ? s?.balls?.find((b) => b.id === config!.balls.id) : undefined;
+  showStock("balls", config.balls, connected ? chosenBall?.have ?? 0 : null);
+  showStock("revives", config.revives, connected ? sum(s?.revives) : null);
+  const goldenOffer = s?.potions?.find((p) => p.golden);
+  showStock("potions", config.potions, connected ? (golden ? goldenOffer?.have ?? 0 : sum(s?.potions)) : null);
+
+  const revives = s?.revives ?? [];
+  $("revives-info").textContent =
+    connected && revives.length ? `${revives.map((r) => `${r.name} ${n(r.have)}`).join(" · ")}\nCompra: ${revives[0].name}, ${n(revives[0].price)} ouro` : "";
+
+  const lines: string[] = [];
+  if (connected && s) {
+    if (golden) {
+      lines.push(goldenOffer ? "Golden Potion: conta só ela, por quantidade." : "A Golden Potion não está à venda no NPC.");
     } else if (s.maxHp != null && s.threshold != null) {
       const costs = (s.potions ?? []).filter((p) => p.cost != null && !p.golden).sort((a, b) => a.cost! - b.cost!);
       lines.push(
         `Ouro por HP útil no pokémon ativo (${n(s.maxHp)} HP, poção abaixo de ${Math.round(s.threshold * 100)}%): ` +
           costs.map((p) => `${p.name} ${cost(p.cost!)}`).join(" · "),
       );
-    } else {
-      lines.push("Custo-benefício: esperando o jogo mandar o pokémon ativo.");
     }
     const chosen = s.potions?.find((p) => p.id === s.potionId);
-    if (chosen) lines.push(`Compra: ${chosen.name}${s.queueFirst === chosen.id ? ' (1ª na fila do "Usar Poções")' : ""}`);
-    $("potions-info").textContent = lines.join("\n");
-    $("gold").textContent = `ouro agora: ${n(s.gold ?? 0)}`;
+    if (chosen) lines.push(`Compra: ${chosen.name}${s.queueFirst === chosen.id ? " (1ª na fila do “Usar Poções”)" : ""}`);
   }
+  $("potions-info").textContent = lines.join("\n");
+  for (const id of ["revives-info", "potions-info"]) $(id).hidden = !$(id).textContent;
 
+  const all = s?.log ?? [];
+  const shown = fullLog ? all : all.filter((line) => line.includes(" comprou ")).slice(-4);
   const log = $("log");
-  const text = (s?.log ?? []).join("\n");
+  const text = shown.length ? shown.join("\n") : fullLog ? "Nada no registro ainda." : "Nenhuma compra ainda.";
+  log.classList.toggle("full", fullLog);
   if (log.textContent !== text) {
     log.textContent = text;
     log.scrollTop = log.scrollHeight;
   }
+  $("log-title").textContent = fullLog ? "Registro" : "Últimas compras";
+  $("log-toggle").textContent = fullLog ? "Mostrar só as compras" : "Ver registro completo";
 }
 
 function read(): Config {
   return {
-    on: checks.on.checked,
-    balls: { on: checks.ballsOn.checked, id: Number(ball.value), keep: readCount(counts.ballsKeep, MAX_STOCK), below: readCount(counts.ballsBelow, MAX_STOCK) },
-    revives: { on: checks.revivesOn.checked, id: 0, keep: readCount(counts.revivesKeep, MAX_STOCK), below: readCount(counts.revivesBelow, MAX_STOCK) },
-    potions: { on: checks.potionsOn.checked, id: Number(potion.value), keep: readCount(counts.potionsKeep, MAX_STOCK), below: readCount(counts.potionsBelow, MAX_STOCK) },
-    potionFirst: checks.potionFirst.checked,
+    on: isOn(switches.on),
+    balls: { on: isOn(switches.ballsOn), id: Number(ball.value), keep: readCount(counts.ballsKeep, MAX_STOCK), below: readCount(counts.ballsBelow, MAX_STOCK) },
+    revives: { on: isOn(switches.revivesOn), id: 0, keep: readCount(counts.revivesKeep, MAX_STOCK), below: readCount(counts.revivesBelow, MAX_STOCK) },
+    potions: { on: isOn(switches.potionsOn), id: Number(potion.value), keep: readCount(counts.potionsKeep, MAX_STOCK), below: readCount(counts.potionsBelow, MAX_STOCK) },
+    potionFirst: potionFirst.checked,
     goldFloor: readCount(counts.goldFloor, MAX_GOLD),
   };
 }
@@ -193,7 +224,13 @@ async function apply() {
   await invoke("restock_set", { config });
 }
 
-for (const box of Object.values(checks)) box.addEventListener("change", apply);
+for (const button of Object.values(switches)) {
+  button.addEventListener("click", () => {
+    setSwitch(button, !isOn(button));
+    apply();
+  });
+}
+potionFirst.addEventListener("change", apply);
 for (const select of [ball, potion]) select.addEventListener("change", apply);
 for (const input of Object.values(counts)) {
   input.inputMode = "numeric";
@@ -205,6 +242,10 @@ for (const input of Object.values(counts)) {
     if (e.key === "Enter") input.blur();
   });
 }
+$("log-toggle").addEventListener("click", () => {
+  fullLog = !fullLog;
+  showStatus();
+});
 
 listen<Status | null>("restock-status", (e) => {
   status = e.payload;
