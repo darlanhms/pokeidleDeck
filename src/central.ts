@@ -141,7 +141,8 @@ function menuFor(account: AccountView, site: SiteView, row: Row): HTMLElement {
     for (const reward of row.rewards) {
       const missing = (reward.cost - (row.points ?? 0));
       const detail = reward.blocked ?? (reward.affordable ? fmt(reward.cost) : `faltam ${fmt(missing)}`);
-      const item = el("button", { type: "button", role: "menuitem", disabled: !reward.affordable }, REWARD_LABEL[reward.kind], el("span", { textContent: detail }));
+      const hours = /\((\d+)\s*h\)/i.exec(reward.title)?.[1] ?? "1";
+      const item = el("button", { type: "button", role: "menuitem", disabled: !reward.affordable }, `${REWARD_LABEL[reward.kind]} · ${hours}h`, el("span", { textContent: detail }));
       item.addEventListener("click", async () => {
         close();
         rowMessages.set(`${site.site}:${row.channel}`, { text: "resgatando…", ok: true });
