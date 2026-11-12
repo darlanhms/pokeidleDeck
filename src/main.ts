@@ -40,6 +40,7 @@ const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>
 const reports = new Map<string, Report>();
 const gold = new Intl.NumberFormat("pt-BR");
 let view: DeckView | null = null;
+let dragging: { id: string; x: number; y: number; active: boolean } | null = null;
 
 const action = (name: string) => invoke("deck_action", { action: name });
 const accountMenu = (id: string) => invoke("account_menu", { id });
@@ -97,6 +98,7 @@ function renderTop(v: DeckView) {
         className: `${pane.focused ? "active" : ""} ${pane.off ? "off" : ""}`,
         title: "Clique: ampliar esta conta (de novo: voltar). Botão direito: mais opções",
       });
+      button.dataset.id = pane.id;
       button.addEventListener("click", () => action(`acc:focus:${pane.id}`));
       button.addEventListener("contextmenu", (e) => {
         e.preventDefault();
@@ -123,7 +125,7 @@ function renderPanes(v: DeckView) {
       "div",
       { className: "pane-header" },
       el("span", { className: `dot ${dotClass(pane)}`, textContent: "●" }),
-      el("span", { className: "name", textContent: pane.name }),
+      el("span", { className: "name", textContent: pane.name, title: "Arraste até o cabeçalho de outra conta para trocar de lugar" }),
       el("span", { className: `info ${status.warn ? "warn" : ""}`, textContent: status.text, title: status.text }),
     );
     if (!pane.off) {
@@ -145,6 +147,8 @@ function renderPanes(v: DeckView) {
         `power ${pane.off ? "off" : ""}`,
       ),
     );
+    header.dataset.id = pane.id;
+    makeDraggable(header, pane.id);
     Object.assign(header.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${v.header}px` });
     header.addEventListener("dblclick", () => action(`acc:focus:${pane.id}`));
     header.addEventListener("contextmenu", (e) => {
@@ -174,8 +178,50 @@ function renderPanes(v: DeckView) {
   $("#panes").replaceChildren(...nodes);
 }
 
+// Arrastar um cabeçalho (ou o botão da conta na barra de cima) até o de outra conta troca as duas de
+// lugar. Só dá para soltar em cabeçalhos e botões: a página do deck não desenha por cima das contas.
+function dropTarget(x: number, y: number, source: string): HTMLElement | null {
+  const target = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-id]");
+  return target && target.dataset.id !== source ? target : null;
+}
+
+function clearDragMarks() {
+  document.querySelectorAll(".dragging, .drop-target").forEach((n) => n.classList.remove("dragging", "drop-target"));
+  document.body.classList.remove("is-dragging");
+}
+
+function makeDraggable(node: HTMLElement, id: string) {
+  node.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    dragging = { id, x: e.clientX, y: e.clientY, active: false };
+    node.setPointerCapture(e.pointerId);
+  });
+  node.addEventListener("pointermove", (e) => {
+    if (!dragging || dragging.id !== id) return;
+    if (!dragging.active && Math.hypot(e.clientX - dragging.x, e.clientY - dragging.y) < 6) return;
+    dragging.active = true;
+    clearDragMarks();
+    document.body.classList.add("is-dragging");
+    document.querySelectorAll(`[data-id="${id}"]`).forEach((n) => n.classList.add("dragging"));
+    const target = dropTarget(e.clientX, e.clientY, id);
+    if (target) document.querySelectorAll(`[data-id="${target.dataset.id}"]`).forEach((n) => n.classList.add("drop-target"));
+  });
+  const finish = (e: PointerEvent, drop: boolean) => {
+    if (!dragging || dragging.id !== id) return;
+    const wasActive = dragging.active;
+    const target = drop && wasActive ? dropTarget(e.clientX, e.clientY, id) : null;
+    dragging = null;
+    if (!wasActive) return;
+    clearDragMarks();
+    if (target) action(`acc:swap:${id}:${target.dataset.id}`);
+    else render();
+  };
+  node.addEventListener("pointerup", (e) => finish(e, true));
+  node.addEventListener("pointercancel", (e) => finish(e, false));
+}
+
 function render() {
-  if (!view) return;
+  if (!view || dragging?.active) return;
   renderTop(view);
   renderPanes(view);
 }
@@ -225,4 +271,4 @@ invoke<DeckView | null>("deck_state").then((v) => {
   render();
 });
 invoke<KickSnapshot | null>("kick_status").then(renderKick);
-setInterval(() => view && renderPanes(view), 30_000);
+setInterval(() => view && !dragging?.active && renderPanes(view), 30_000);

@@ -137,6 +137,24 @@ button.active {
   overflow: hidden;
 }
 
+.pane-header .name {
+  cursor: grab;
+}
+
+body.is-dragging,
+body.is-dragging * {
+  cursor: grabbing !important;
+}
+
+.dragging {
+  opacity: 0.55;
+}
+
+.drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .pane-header .dot {
   color: var(--muted);
   font-size: 10px;

@@ -188,6 +188,19 @@ pub fn account_menu(app: AppHandle, window: Window, id: Uuid) -> Result<(), Stri
         .state::<Deck>()
         .read(|c| c.layout == LayoutMode::Focus && c.focused == Some(id));
     let entry = |action: &str, text: &str, enabled: bool| item(&app, format!("acc:{action}:{id}"), text, enabled, None);
+    let swap_submenu = || -> tauri::Result<Submenu<Wry>> {
+        let submenu = Submenu::new(&app, "Trocar de lugar com", accounts.len() > 1)?;
+        for (position, other) in accounts.iter().enumerate().filter(|(_, a)| a.id != id) {
+            submenu.append(&item(
+                &app,
+                format!("acc:swap:{id}:{}", other.id),
+                &format!("{} ({}ª)", other.name, position + 1),
+                true,
+                None,
+            )?)?;
+        }
+        Ok(submenu)
+    };
     let build = || -> tauri::Result<Menu<Wry>> {
         Menu::with_items(
             &app,
@@ -198,8 +211,7 @@ pub fn account_menu(app: AppHandle, window: Window, id: Uuid) -> Result<(), Stri
                 &entry("rename", "Renomear…", true)?,
                 &entry("power", if account.off { "Ligar esta conta" } else { "Desligar esta conta (fica no deck, sem rodar nada)" }, true)?,
                 &PredefinedMenuItem::separator(&app)?,
-                &entry("left", "Mover para a esquerda", index > 0)?,
-                &entry("right", "Mover para a direita", index + 1 < accounts.len())?,
+                &swap_submenu()?,
                 &PredefinedMenuItem::separator(&app)?,
                 &entry("inspect", "Inspecionar página", !account.off)?,
                 &entry("remove", "Remover conta…", accounts.len() > 1)?,
@@ -222,7 +234,9 @@ pub fn dispatch(app: &AppHandle, action: &str) {
     let deck = app.state::<Deck>();
     match (scope, verb) {
         (Some("acc"), Some(verb)) => {
-            let Some(id) = rest.and_then(|r| Uuid::parse_str(r).ok()) else { return };
+            let mut ids = rest.unwrap_or_default().split(':').map(Uuid::parse_str);
+            let Some(Ok(id)) = ids.next() else { return };
+            let other = ids.next().and_then(Result::ok);
             match verb {
                 "focus" => {
                     deck.update(|c| c.toggle_focus(id));
@@ -237,8 +251,11 @@ pub fn dispatch(app: &AppHandle, action: &str) {
                 "mute" => accounts::toggle_mute(app, id),
                 "reload" => accounts::reload(app, id),
                 "rename" => crate::prompt::rename(app, id, "Renomear conta"),
-                "left" => accounts::move_by(app, id, -1),
-                "right" => accounts::move_by(app, id, 1),
+                "swap" => {
+                    if let Some(other) = other {
+                        accounts::swap(app, id, other);
+                    }
+                }
                 "inspect" => accounts::inspect(app, id),
                 "remove" => accounts::confirm_remove(app, id),
                 _ => {}

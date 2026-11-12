@@ -348,9 +348,10 @@ async fn shell(app: &AppHandle, report: &mut Report) {
         view(app).panes[0].name == "Main" && app.get_webview_window("prompt").is_none(),
         format!("enviar o nome renomeia e fecha a janela ({})", view(app).panes[0].name),
     );
-    act(app, format!("acc:right:{first}")).await;
+    act(app, format!("acc:swap:{first}:{}", ids[3])).await;
     let order: Vec<Uuid> = view(app).panes.iter().map(|p| p.id).collect();
-    report.check(order[1] == first && order[0] == ids[1], "mover para a direita troca com a vizinha");
+    report.check(order[3] == first && order[0] == ids[3], "trocar de lugar: a 1ª e a 4ª trocam");
+    act(app, format!("acc:swap:{first}:{}", ids[3])).await;
 
     let kept = ids[3];
     let _ = wait_loaded(app, kept).await;

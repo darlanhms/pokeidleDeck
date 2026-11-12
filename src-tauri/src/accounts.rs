@@ -166,12 +166,13 @@ pub async fn purge_pending(app: AppHandle) {
     }
 }
 
-pub fn move_by(app: &AppHandle, id: Uuid, offset: isize) {
+/// Troca duas contas de lugar (menu "Trocar de lugar com" e arrastar um cabeçalho até outro).
+pub fn swap(app: &AppHandle, id: Uuid, other: Uuid) {
     app.state::<Deck>().update(|config| {
-        let Some(index) = config.accounts.iter().position(|a| a.id == id) else { return };
-        let target = index as isize + offset;
-        if target >= 0 && (target as usize) < config.accounts.len() {
-            config.accounts.swap(index, target as usize);
+        let a = config.accounts.iter().position(|acc| acc.id == id);
+        let b = config.accounts.iter().position(|acc| acc.id == other);
+        if let (Some(a), Some(b)) = (a, b) {
+            config.accounts.swap(a, b);
         }
     });
     deck::refresh(app);
