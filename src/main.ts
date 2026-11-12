@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { icons } from "./icons";
 
 type Status = "starting" | "loading" | "ok" | "off";
 type Rect = { x: number; y: number; w: number; h: number };
@@ -74,8 +75,8 @@ function dotClass(pane: Pane): string {
   return pane.status === "ok" ? "ok" : pane.status === "loading" ? "loading" : "";
 }
 
-function headerButton(text: string, title: string, onClick: () => void, className = "") {
-  const button = el("button", { type: "button", textContent: text, title, className });
+function headerButton(icon: string, title: string, onClick: () => void, className = "") {
+  const button = el("button", { type: "button", innerHTML: icon, title, ariaLabel: title, className: `icon ${className}` });
   button.addEventListener("click", (e) => {
     e.stopPropagation();
     onClick();
@@ -110,7 +111,9 @@ function renderTop(v: DeckView) {
   $<HTMLButtonElement>("#zoom-menu").textContent = `Zoom ${Math.round(v.zoom * 100)}%`;
   $<HTMLButtonElement>("#zoom-out").disabled = v.zoom <= ZOOM_MIN + 0.001;
   $<HTMLButtonElement>("#zoom-in").disabled = v.zoom >= ZOOM_MAX - 0.001;
-  $<HTMLButtonElement>("#fullscreen").classList.toggle("active", v.fullscreen);
+  const fullscreen = $<HTMLButtonElement>("#fullscreen");
+  fullscreen.innerHTML = v.fullscreen ? icons.exitFullscreen : icons.fullscreen;
+  fullscreen.title = v.fullscreen ? "Sair da tela cheia (F11)" : "Tela cheia (F11)";
   const on = v.panes.filter((p) => !p.off).length;
   $("#summary").textContent = `${v.panes.length} ${v.panes.length === 1 ? "conta" : "contas"}, ${on} ${on === 1 ? "ligada" : "ligadas"}`;
 }
@@ -130,16 +133,16 @@ function renderPanes(v: DeckView) {
     );
     if (!pane.off) {
       header.append(
-        headerButton(pane.muted ? "🔇" : "🔊", "Ligar / desligar o som desta conta", () => action(`acc:mute:${pane.id}`)),
-        headerButton("⟳", "Recarregar a página", () => action(`acc:reload:${pane.id}`)),
+        headerButton(pane.muted ? icons.muted : icons.sound, "Ligar / desligar o som desta conta", () => action(`acc:mute:${pane.id}`)),
+        headerButton(icons.reload, "Recarregar a página", () => action(`acc:reload:${pane.id}`)),
       );
     }
     header.append(
-      headerButton(pane.focused ? "⤡" : "⤢", "Ampliar esta conta / voltar (duplo clique no cabeçalho faz o mesmo)", () =>
+      headerButton(pane.focused ? icons.shrink : icons.expand, "Ampliar esta conta / voltar (duplo clique no cabeçalho faz o mesmo)", () =>
         action(`acc:focus:${pane.id}`),
       ),
       headerButton(
-        "⏻",
+        icons.power,
         pane.off
           ? "Ligar esta conta: o jogo abre de novo"
           : "Desligar esta conta: o jogo dela para (ela continua aqui no deck)",
@@ -163,7 +166,7 @@ function renderPanes(v: DeckView) {
         { className: "off-note" },
         el("strong", { textContent: `${pane.name} desligada` }),
         el("span", { textContent: "Nada roda nela: o jogo fica parado." }),
-        el("span", { textContent: "Clique no ⏻ do cabeçalho para ligar." }),
+        el("span", { textContent: "Clique no botão de ligar, no canto direito do cabeçalho." }),
       );
       note.addEventListener("dblclick", () => action(`acc:focus:${pane.id}`));
       Object.assign(note.style, {
@@ -234,6 +237,7 @@ function renderKick(snapshot: KickSnapshot | null) {
   $("#kick").textContent = `Kick ${snapshot.channel} (${Math.floor(snapshot.elapsedSecs / 60)} min): ${players}`;
 }
 
+$("#accounts-menu").insertAdjacentHTML("beforeend", icons.chevron);
 for (const button of document.querySelectorAll<HTMLButtonElement>("#layouts button")) {
   button.addEventListener("click", () => action(`deck:layout:${button.dataset.layout}`));
 }
