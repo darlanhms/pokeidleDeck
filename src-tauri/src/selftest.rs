@@ -36,6 +36,7 @@ pub fn start(app: AppHandle, phase: String) {
         match phase.as_str() {
             "1" => phase_one(&app, &mut report).await,
             "2" => phase_two(&app, &mut report).await,
+            "menu" => return menu_over_webviews(&app).await,
             other => report.check(false, format!("fase desconhecida: {other}")),
         }
         let path = deck::data_dir(&app).join(format!("selftest-{phase}.txt"));
@@ -193,4 +194,30 @@ async fn phase_two(app: &AppHandle, report: &mut Report) {
         let records = webkit::data_records(app, id).await;
         report.check(records.as_ref().is_ok_and(|r| r.iter().all(|r| is_cache_only(r))), format!("limpeza: {id} sem login/cookies ({records:?})"));
     }
+}
+
+/// Fotografa só a janela do deck (`screencapture -l`, nunca a tela inteira) para conferir os
+/// cabeçalhos. O menu nativo é outra janela, acima de todas as do app, e não sai nessa foto.
+async fn menu_over_webviews(app: &AppHandle) {
+    let first = app.state::<deck::Deck>().accounts()[0].id;
+    let _ = wait_loaded(app, first).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let shot = deck::data_dir(app).join("deck.png");
+    let window_number = on_main(app, |app| {
+        let window = app.get_window("main")?;
+        for webview in window.webviews() {
+            println!("[selftest] webview {} pos={:?} size={:?}", webview.label(), webview.position(), webview.size());
+        }
+        let pointer = window.ns_window().ok()?;
+        Some(unsafe { (*(pointer as *const objc2_app_kit::NSWindow)).windowNumber() })
+    })
+    .await;
+    if let Some(number) = window_number {
+        let status = std::process::Command::new("screencapture")
+            .args(["-x", "-o", "-l", &number.to_string()])
+            .arg(&shot)
+            .status();
+        println!("[selftest] janela {number} em {} ({status:?})", shot.display());
+    }
+    app.exit(0);
 }

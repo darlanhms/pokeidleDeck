@@ -54,8 +54,31 @@ pub fn configuration(
         config.setWebsiteDataStore(&data_store);
         if autoplay {
             config.setMediaTypesRequiringUserActionForPlayback(WKAudiovisualMediaTypes::None);
+            keep_running_when_hidden(&config);
         }
         config
+    }
+}
+
+/// Página oculta (fora da tela ou coberta) tem o processo suprimido e os timers estrangulados pelo
+/// WebKit, o que mata o player depois de alguns minutos. Preferências privadas do WKPreferences.
+unsafe fn keep_running_when_hidden(config: &WKWebViewConfiguration) {
+    let preferences = unsafe { config.preferences() };
+    let object: &AnyObject = &preferences;
+    unsafe {
+        let a = responds(object, sel!(_setPageVisibilityBasedProcessSuppressionEnabled:));
+        if a {
+            let _: () = msg_send![object, _setPageVisibilityBasedProcessSuppressionEnabled: Bool::NO];
+        }
+        let b = responds(object, sel!(_setHiddenPageDOMTimerThrottlingEnabled:));
+        if b {
+            let _: () = msg_send![object, _setHiddenPageDOMTimerThrottlingEnabled: Bool::NO];
+        }
+        let c = responds(object, sel!(_setHiddenPageDOMTimerThrottlingAutoIncreases:));
+        if c {
+            let _: () = msg_send![object, _setHiddenPageDOMTimerThrottlingAutoIncreases: Bool::NO];
+        }
+        println!("[webkit] WKPreferences privadas: supressão={a} throttling={b} auto={c}");
     }
 }
 
@@ -195,9 +218,11 @@ pub fn set_page_muted(webview: &Webview, muted: bool) {
 pub fn disable_occlusion_detection(webview: &Webview) {
     let _ = webview.with_webview(move |platform| unsafe {
         let webview = &*(platform.inner() as *const AnyObject);
-        if responds(webview, sel!(_setWindowOcclusionDetectionEnabled:)) {
+        let available = responds(webview, sel!(_setWindowOcclusionDetectionEnabled:));
+        if available {
             let _: () = msg_send![webview, _setWindowOcclusionDetectionEnabled: Bool::NO];
         }
+        println!("[webkit] _setWindowOcclusionDetectionEnabled: disponível={available}");
     });
 }
 

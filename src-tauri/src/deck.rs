@@ -38,6 +38,7 @@ pub struct Deck {
     config: Mutex<DeckConfig>,
     path: PathBuf,
     reports: Mutex<HashMap<Uuid, serde_json::Value>>,
+    inset: Mutex<f64>,
 }
 
 impl Deck {
@@ -75,6 +76,12 @@ pub struct Layout {
     header: f64,
     top_bar: f64,
     bottom_bar: f64,
+    #[serde(skip)]
+    inset: f64,
+    #[serde(skip)]
+    width: f64,
+    #[serde(skip)]
+    height: f64,
 }
 
 pub fn data_dir(app: &AppHandle) -> PathBuf {
@@ -99,7 +106,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let config = DeckConfig::load(&path);
     config.save(&path)?;
     let accounts = config.accounts.clone();
-    app.manage(Deck { config: Mutex::new(config), path, reports: Mutex::default() });
+    app.manage(Deck { config: Mutex::new(config), path, reports: Mutex::default(), inset: Mutex::new(0.0) });
     tauri::async_runtime::spawn(purge_pending(app.clone()));
 
     let window = WindowBuilder::new(app, "main")
@@ -140,11 +147,22 @@ fn spawn_account(window: &Window, account: &Account) -> tauri::Result<Webview> {
     window.add_child(builder, LogicalPosition::new(0.0, 0.0), LogicalSize::new(10.0, 10.0))
 }
 
+/// Altura da barra de título que fica por cima do conteúdo. A janela do Tauri usa conteúdo de
+/// tamanho cheio, e o WKWebView que fica embaixo da barra se desloca sozinho, desalinhando o deck.
+fn titlebar_inset(window: &Window) -> f64 {
+    let Ok(pointer) = window.ns_window() else { return 0.0 };
+    let ns_window = unsafe { &*(pointer as *const objc2_app_kit::NSWindow) };
+    let Some(content) = ns_window.contentView() else { return 0.0 };
+    (content.frame().size.height - ns_window.contentLayoutRect().size.height).max(0.0)
+}
+
+/// Os retângulos são relativos à webview do deck, que começa logo abaixo da barra de título (`inset`).
 pub fn current_layout(app: &AppHandle) -> Option<Layout> {
     let window = app.get_window("main")?;
     let scale = window.scale_factor().ok()?;
     let size = window.inner_size().ok()?.to_logical::<f64>(scale);
     let deck = app.state::<Deck>();
+    let inset = *deck.inset.lock().unwrap();
     let (accounts, stacked) = {
         let config = deck.config.lock().unwrap();
         (config.accounts.clone(), config.stacked)
@@ -153,7 +171,7 @@ pub fn current_layout(app: &AppHandle) -> Option<Layout> {
         x: 0.0,
         y: TOP_BAR,
         w: size.width,
-        h: (size.height - TOP_BAR - BOTTOM_BAR).max(0.0),
+        h: (size.height - inset - TOP_BAR - BOTTOM_BAR).max(0.0),
     };
     let rects = layout::grid(accounts.len(), area, stacked, GAP);
     let panes = accounts
@@ -161,24 +179,25 @@ pub fn current_layout(app: &AppHandle) -> Option<Layout> {
         .zip(rects)
         .map(|(account, rect)| Pane { id: account.id, name: account.name, rect })
         .collect();
-    Some(Layout { panes, header: HEADER, top_bar: TOP_BAR, bottom_bar: BOTTOM_BAR })
+    Some(Layout { panes, header: HEADER, top_bar: TOP_BAR, bottom_bar: BOTTOM_BAR, inset, width: size.width, height: size.height - inset })
 }
 
 pub fn relayout(app: &AppHandle) {
+    let Some(window) = app.get_window("main") else { return };
+    *app.state::<Deck>().inset.lock().unwrap() = titlebar_inset(&window);
     let Some(layout) = current_layout(app) else { return };
-    if let (Some(window), Some(deck)) = (app.get_window("main"), app.get_webview("deck")) {
-        if let Ok(size) = window.inner_size() {
-            let _ = deck.set_bounds(Rect {
-                position: LogicalPosition::new(0.0, 0.0).into(),
-                size: size.into(),
-            });
-        }
+    let inset = layout.inset;
+    if let Some(deck) = app.get_webview("deck") {
+        let _ = deck.set_bounds(Rect {
+            position: LogicalPosition::new(0.0, inset).into(),
+            size: LogicalSize::new(layout.width, layout.height).into(),
+        });
     }
     for pane in &layout.panes {
         if let Some(webview) = app.get_webview(&label(&pane.id)) {
             let r = pane.rect;
             let _ = webview.set_bounds(Rect {
-                position: LogicalPosition::new(r.x, r.y + HEADER).into(),
+                position: LogicalPosition::new(r.x, inset + r.y + HEADER).into(),
                 size: LogicalSize::new(r.w, (r.h - HEADER).max(0.0)).into(),
             });
         }
@@ -375,8 +394,9 @@ pub fn deck_menu(app: AppHandle, window: Window, x: f64, y: f64) -> Result<(), S
         Menu::with_items(&app, &[&add, &restore, &PredefinedMenuItem::separator(&app)?, &stack])
     };
     let menu = build().map_err(|e| e.to_string())?;
+    let inset = *deck.inset.lock().unwrap();
     window
-        .popup_menu_at(&menu, LogicalPosition::new(x, y))
+        .popup_menu_at(&menu, LogicalPosition::new(x, y + inset))
         .map_err(|e| e.to_string())
 }
 

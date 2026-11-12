@@ -17,6 +17,7 @@ use tauri::{
 
 #[derive(Clone, Copy, PartialEq)]
 enum Host {
+    VisibleWindow,
     OffscreenWindow,
     HiddenChild,
 }
@@ -33,15 +34,23 @@ const VARIANTS: [Variant; 3] = [
     Variant { key: "filha-oculta", host: Host::HiddenChild, occlusion_detection: false },
 ];
 
+const VISIBLE_JS: &str = include_str!("../scripts/visible.js");
+
 const CHECK_EVERY: Duration = Duration::from_secs(30);
 
 /// Mudo por JS também, caso o `_setPageMuted:` some numa versão do macOS.
-const MUTE_JS: &str = "addEventListener('play', (e) => { if (e.target instanceof HTMLMediaElement) e.target.muted = true; }, true);";
+const MUTE_JS: &str = "addEventListener('play', (e) => { if (e.target instanceof HTMLMediaElement) e.target.muted = true; }, true);\n\
+    window.__deckErrors = [];\n\
+    addEventListener('error', (e) => window.__deckErrors.push(String(e.message || (e.target && e.target.src) || e)), true);\n\
+    addEventListener('unhandledrejection', (e) => window.__deckErrors.push('rejection: ' + String(e.reason)));";
 
 const STATUS_JS: &str = "const v = document.querySelector('video');\n\
-    if (!v) return { video: false, visibility: document.visibilityState };\n\
+    const page = { title: document.title, text: (document.body ? document.body.innerText : '').slice(0, 120).replace(/\\s+/g, ' '),\n\
+      mse: typeof MediaSource, mms: typeof ManagedMediaSource, errors: (window.__deckErrors || []).slice(-3) };\n\
+    if (!v) return { video: false, visibility: document.visibilityState, page };\n\
     return { video: true, paused: v.paused, time: v.currentTime, ready: v.readyState, muted: v.muted,\n\
-             visibility: document.visibilityState, width: v.videoWidth };";
+             visibility: document.visibilityState + '/' + (window.__deckRealVisibility ? window.__deckRealVisibility() : '?'), width: v.videoWidth, network: v.networkState,\n\
+             src: (v.currentSrc || '').slice(0, 60), error: v.error && v.error.code, page };";
 
 const RESUME_JS: &str = "const v = document.querySelector('video');\n\
     if (!v) return 'sem vídeo';\n\
@@ -116,18 +125,20 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         let label = webview_label(variant);
         let config = webkit::configuration(mtm, None, true);
         match variant.host {
-            Host::OffscreenWindow => {
+            Host::VisibleWindow | Host::OffscreenWindow => {
+                let x = if variant.host == Host::VisibleWindow { 60.0 } else { right_edge + 100.0 + index as f64 * 520.0 };
                 let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url.clone()))
                     .with_webview_configuration(config)
                     .user_agent(deck::USER_AGENT)
                     .background_throttling(BackgroundThrottlingPolicy::Disabled)
+                    .initialization_script(VISIBLE_JS)
                     .initialization_script(MUTE_JS)
                     .title(format!("Kick · {}", variant.key))
                     .decorations(false)
                     .skip_taskbar(true)
                     .focused(false)
                     .inner_size(480.0, 270.0)
-                    .position(right_edge + 100.0 + index as f64 * 520.0, 0.0)
+                    .position(x, 60.0)
                     .build()?;
                 println!("[kick] {label}: janela em {:?}", window.outer_position()?);
             }
@@ -138,7 +149,8 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
                         .with_webview_configuration(config)
                         .user_agent(deck::USER_AGENT)
                         .background_throttling(BackgroundThrottlingPolicy::Disabled)
-                        .initialization_script(MUTE_JS),
+                        .initialization_script(VISIBLE_JS)
+                    .initialization_script(MUTE_JS),
                     LogicalPosition::new(0.0, 0.0),
                     LogicalSize::new(480.0, 270.0),
                 )?;
@@ -198,6 +210,9 @@ async fn monitor(app: AppHandle) {
                         v["width"],
                     );
                     if !playing {
+                        next.detail.push_str(&format!(" network={} src={} error={} page={}", v["network"], v["src"], v["error"], v["page"]));
+                    }
+                    if !playing {
                         next.stopped_checks += 1;
                         if paused {
                             resume = Some(webkit::call_async(&webview, RESUME_JS, Duration::from_secs(10)).await);
@@ -208,7 +223,7 @@ async fn monitor(app: AppHandle) {
                 Ok(Ok(v)) => {
                     next.playing = Some(false);
                     next.stopped_checks += 1;
-                    next.detail = format!("sem <video> (visibility={})", v["visibility"].as_str().unwrap_or("?"));
+                    next.detail = format!("sem <video> (visibility={}) page={}", v["visibility"].as_str().unwrap_or("?"), v["page"]);
                 }
                 Ok(Err(err)) => next.detail = format!("resposta inválida: {err}"),
                 Err(err) => next.detail = format!("não respondeu: {err}"),
