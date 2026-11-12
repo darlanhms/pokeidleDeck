@@ -367,8 +367,13 @@ pub fn central_channel(app: AppHandle, id: Uuid, site: String, channel: String, 
 
 #[tauri::command]
 pub fn central_action(app: AppHandle, action: String, id: Option<Uuid>, site: Option<String>) {
+    crate::deck::later(&app, move |app| run_action(app, &action, id, site));
+}
+
+fn run_action(app: &AppHandle, action: &str, id: Option<Uuid>, site: Option<String>) {
+    let app = app.clone();
     let site = site.as_deref().and_then(site_of);
-    match (action.as_str(), id) {
+    match (action, id) {
         ("toggle-lives", Some(id)) => {
             lives::toggle_account(&app, id);
             refresh(&app);

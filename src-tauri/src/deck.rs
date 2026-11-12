@@ -145,6 +145,13 @@ pub fn data_dir(app: &AppHandle) -> PathBuf {
     }
 }
 
+/// Roda `f` na main thread depois que o comando atual voltar. No Windows, criar janela ou webview dentro
+/// de um comando síncrono trava o app (o WebView2 espera a main thread, que está presa no comando).
+pub fn later(app: &AppHandle, f: impl FnOnce(&AppHandle) + Send + 'static) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || f(&handle));
+}
+
 pub fn main_window(app: &AppHandle) -> Option<Window> {
     app.get_window("main")
 }

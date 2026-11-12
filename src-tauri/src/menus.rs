@@ -149,11 +149,17 @@ pub fn sync_app_menu(app: &AppHandle) {
     }
 }
 
+/// O menu abre depois que o comando que o pediu volta: no Windows o menu modal dentro do comando
+/// prenderia o WebView2.
 fn popup_at(app: &AppHandle, window: &Window, menu: &Menu<Wry>, x: f64, y: f64) -> Result<(), String> {
     let inset = app.state::<Deck>().inset();
-    window
-        .popup_menu_at(menu, LogicalPosition::new(x, y + inset))
-        .map_err(|e| e.to_string())
+    let (window, menu) = (window.clone(), menu.clone());
+    deck::later(app, move |_| {
+        if let Err(err) = window.popup_menu_at(&menu, LogicalPosition::new(x, y + inset)) {
+            eprintln!("[deck] menu: {err}");
+        }
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -260,7 +266,12 @@ pub fn account_menu(app: AppHandle, window: Window, id: Uuid) -> Result<(), Stri
         )
     };
     let menu = build().map_err(|e| e.to_string())?;
-    window.popup_menu(&menu).map_err(|e| e.to_string())
+    deck::later(&app, move |_| {
+        if let Err(err) = window.popup_menu(&menu) {
+            eprintln!("[deck] menu da conta: {err}");
+        }
+    });
+    Ok(())
 }
 
 pub fn on_menu_event(app: &AppHandle, event: MenuEvent) {
@@ -394,7 +405,7 @@ pub fn deck_state(app: AppHandle) -> Option<deck::DeckView> {
 
 #[tauri::command]
 pub fn deck_action(app: AppHandle, action: String) {
-    dispatch(&app, &action);
+    deck::later(&app, move |app| dispatch(app, &action));
 }
 
 /// Teclas que a página do jogo repassa (só o F11; a página não manda em mais nada do deck).

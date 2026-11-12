@@ -87,6 +87,6 @@ pub fn lives_config_set(app: AppHandle, window: tauri::WebviewWindow, form: Live
             }
         }
     });
-    lives::restart(&app);
     let _ = window.close();
+    crate::deck::later(&app, lives::restart);
 }

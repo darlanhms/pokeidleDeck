@@ -111,6 +111,7 @@ pub fn has_window(app: &AppHandle, id: Uuid) -> bool {
 }
 
 /// Logo à direita do monitor mais à direita, como o original no Windows.
+#[cfg(target_os = "macos")]
 fn parked_position(app: &AppHandle) -> (f64, f64) {
     let right = app
         .available_monitors()
@@ -142,17 +143,22 @@ pub fn open(app: &AppHandle, id: Uuid) {
     if account.off || twitch + kick == 0 {
         return;
     }
-    let (x, y) = parked_position(app);
-    // Sem barra de título enquanto fora da tela: o macOS puxa de volta janela com barra que sai da tela.
-    let window = match WindowBuilder::new(app, window_label(id))
+    let builder = WindowBuilder::new(app, window_label(id))
         .title(format!("Lives — {}", account.name))
-        .decorations(false)
         .inner_size(WINDOW_SIZE.0, WINDOW_SIZE.1)
-        .position(x, y)
         .focused(false)
-        .skip_taskbar(true)
-        .build()
-    {
+        .skip_taskbar(true);
+    // macOS: fora da tela e sem barra de título (o macOS puxa de volta janela com barra que sai da tela);
+    // oculta, o WebKit pararia os players. Windows: só oculta, que o WebView2 segue tocando com os
+    // argumentos do navegador, e a janela fora da tela ou sem barra fica branca.
+    #[cfg(target_os = "macos")]
+    let builder = {
+        let (x, y) = parked_position(app);
+        builder.decorations(false).position(x, y)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.visible(false);
+    let window = match builder.build() {
         Ok(window) => window,
         Err(err) => return eprintln!("[lives] não abriu a janela de {}: {err}", account.name),
     };
@@ -338,9 +344,14 @@ pub fn park(app: &AppHandle, id: Uuid) {
     // As páginas dos pontos custam ~200 MB cada: só existem com a janela na tela.
     close_chats(app, &chats);
     if let Some(window) = app.get_window(&window_label(id)) {
-        let (x, y) = parked_position(app);
-        let _ = window.set_decorations(false);
-        let _ = window.set_position(LogicalPosition::new(x, y));
+        #[cfg(target_os = "macos")]
+        {
+            let (x, y) = parked_position(app);
+            let _ = window.set_decorations(false);
+            let _ = window.set_position(LogicalPosition::new(x, y));
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = window.hide();
     }
     layout(app, id);
 }
@@ -357,6 +368,7 @@ pub fn reveal(app: &AppHandle, id: Uuid, order: usize) {
         }
     }
     if let (Some(window), Some(main)) = (app.get_window(&window_label(id)), deck::main_window(app)) {
+        #[cfg(target_os = "macos")]
         let _ = window.set_decorations(true);
         if let (Ok(scale), Ok(position), Ok(size)) = (main.scale_factor(), main.outer_position(), main.outer_size()) {
             let position = position.to_logical::<f64>(scale);
@@ -365,6 +377,7 @@ pub fn reveal(app: &AppHandle, id: Uuid, order: usize) {
             let y = position.y + ((size.height - WINDOW_SIZE.1) / 2.0).max(0.0) + order as f64 * 40.0;
             let _ = window.set_position(LogicalPosition::new(x, y));
         }
+        let _ = window.show();
         let _ = window.set_focus();
     }
     layout(app, id);
@@ -877,15 +890,19 @@ fn remember_points_height(app: &AppHandle, id: Uuid) {
 #[tauri::command]
 pub fn lives_ui_points(app: AppHandle, webview: tauri::Webview) {
     let Some(id) = account_of_window(webview.label()) else { return };
-    let on = !app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| w.points);
-    set_points(&app, id, on);
+    deck::later(&app, move |app| {
+        let on = !app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| w.points);
+        set_points(app, id, on);
+    });
 }
 
 #[tauri::command]
 pub fn lives_ui_full_page(app: AppHandle, webview: tauri::Webview) {
     let Some(id) = account_of_window(webview.label()) else { return };
-    let full = !app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| w.full_page);
-    set_full_page(&app, id, full);
+    deck::later(&app, move |app| {
+        let full = !app.state::<Lives>().windows.lock().unwrap().get(&id).is_some_and(|w| w.full_page);
+        set_full_page(app, id, full);
+    });
 }
 
 // ---------- Fechar e abrir lives numa conta ----------
