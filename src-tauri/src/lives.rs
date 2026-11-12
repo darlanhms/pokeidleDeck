@@ -26,9 +26,7 @@ use tauri::{
 };
 use uuid::Uuid;
 
-#[cfg(target_os = "macos")]
 const VISIBLE_JS: &str = include_str!("../scripts/visible.js");
-#[cfg(target_os = "macos")]
 const MUTE_JS: &str = "addEventListener('play', (e) => { if (e.target instanceof HTMLMediaElement) e.target.muted = true; }, true);";
 
 /// Clica a confirmação de conteúdo adulto da Twitch, dá play se pausou e diz se o vídeo anda.
@@ -185,14 +183,17 @@ pub fn open(app: &AppHandle, id: Uuid) {
         let handle_label = label.clone();
         let builder = WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()));
         let builder = webkit::prepare(app, builder, Some(id), player).background_throttling(BackgroundThrottlingPolicy::Disabled);
-        // macOS: o WebKit pausa o player escondido sem fingir a página visível. Windows: os argumentos do
-        // navegador já seguram o player, e a Twitch recusa o login ("navegador sem suporte") quando acha
-        // funções nativas trocadas, como o original, as páginas das lives ficam sem script nosso.
-        #[cfg(target_os = "macos")]
-        let builder = builder
-            .initialization_script(VISIBLE_JS)
-            .initialization_script(MUTE_JS)
-            .initialization_script(automation::MOTION_JS.replace("__DECK_REDUCE_MOTION__", "true"));
+        // Os players fingem a página visível (o WebKit pausa o escondido, e a Twitch só conta o tempo assistido
+        // com a página à vista), mudos e sem animação. A página de entrar fica sem script nosso: a checagem
+        // anti-robô da Twitch recusa o login ("navegador sem suporte") ao achar funções nativas trocadas.
+        let builder = if site.is_some() {
+            builder
+                .initialization_script(VISIBLE_JS)
+                .initialization_script(MUTE_JS)
+                .initialization_script(automation::MOTION_JS.replace("__DECK_REDUCE_MOTION__", "true"))
+        } else {
+            builder
+        };
         let builder = builder
             .on_page_load(move |webview, payload| {
                 let blank = payload.url().scheme() == "about";
