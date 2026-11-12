@@ -7,6 +7,7 @@ mod config;
 mod deck;
 mod kick;
 mod layout;
+mod memory;
 mod menus;
 mod prompt;
 mod selftest;
@@ -42,6 +43,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
             deck::setup(handle)?;
+            memory::start(handle);
             match std::env::var("DECK_SELFTEST") {
                 Ok(phase) => selftest::start(handle.clone(), phase),
                 Err(_) => kick::setup(handle)?,
