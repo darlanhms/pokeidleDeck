@@ -546,6 +546,13 @@ async fn lives_phase(app: &AppHandle, report: &mut Report) {
     tokio::time::sleep(Duration::from_secs(70)).await;
     let playing = lives::snapshot(app, id).iter().find(|s| s.0 == Some(Site::Kick) && s.1.is_some()).and_then(|s| s.3);
     report.check(playing == Some(true), format!("o vigia vê o player da Kick tocando fora da tela ({playing:?})"));
+    if let Some((label, channel)) = lives::live_pages(app, id, Site::Kick).into_iter().next() {
+        let answer = crate::points::probe_kick(app, &label, &channel, "token-de-teste").await;
+        report.check(
+            answer.as_ref().and_then(|a| a["error"].as_str()).is_some_and(|e| e.starts_with("saldo: erro")),
+            format!("o script dos pontos da Kick roda no player e responde ({answer:?})"),
+        );
+    }
     act(app, "lives:show".into()).await;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let number = on_main(app, move |app| {

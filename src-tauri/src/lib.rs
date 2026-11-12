@@ -11,6 +11,7 @@ mod live_check;
 mod lives;
 mod lives_config;
 mod memory;
+mod points;
 mod menus;
 mod prompt;
 mod selftest;
@@ -25,6 +26,7 @@ pub fn run() {
         .manage(prompt::PromptState::default())
         .manage(automation::Automation::default())
         .manage(lives::Lives::default())
+        .manage(points::Points::default())
         .invoke_handler(tauri::generate_handler![
             menus::deck_state,
             menus::deck_action,
@@ -39,6 +41,8 @@ pub fn run() {
             lives::lives_ui_park,
             lives_config::lives_config_get,
             lives_config::lives_config_set,
+            points::registro_get,
+            points::registro_open_file,
             automation::account_click,
             automation::restock_get,
             automation::restock_set,
@@ -56,6 +60,7 @@ pub fn run() {
             memory::start(handle);
             if std::env::var_os("DECK_SELFTEST").is_none() {
                 lives::start(handle);
+                points::start(handle);
             }
             match std::env::var("DECK_SELFTEST") {
                 Ok(phase) => selftest::start(handle.clone(), phase),

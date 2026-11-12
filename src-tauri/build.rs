@@ -13,6 +13,8 @@ fn main() {
         "lives_ui_park",
         "lives_config_get",
         "lives_config_set",
+        "registro_get",
+        "registro_open_file",
         "account_click",
         "restock_get",
         "restock_set",

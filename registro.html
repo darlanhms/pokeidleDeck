@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Registro dos resgates</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/registro.ts" defer></script>
+  </head>
+  <body class="dialog registro">
+    <main>
+      <p class="info">
+        Cada resgate, baú da Twitch, recusa e pontos que voltaram, o mais novo em cima. A conferência do saldo (Kick a
+        cada 5 min, Twitch a cada 2) só aparece aqui quando algo acontece; o saldo de agora fica no menu Lives.
+      </p>
+      <pre id="lines"></pre>
+      <div class="actions">
+        <button type="button" id="open-file">Abrir o arquivo</button>
+      </div>
+    </main>
+  </body>
+</html>

@@ -33,6 +33,7 @@ const MUTE_JS: &str = "addEventListener('play', (e) => { if (e.target instanceof
 const PLAY_JS: &str = "return (() => { document.querySelector('[data-a-target=\"player-overlay-mature-accept\"], [data-a-target=\"content-classification-gate-overlay-start-watching-button\"]')?.click(); const v = document.querySelector('video'); if (!v) return 'sem'; if (v.paused) v.play().catch(() => {}); return [v.paused, v.readyState, v.currentTime].join(' '); })();";
 
 const TWITCH_LOGIN: &str = "https://www.twitch.tv/login";
+const KICK_LOGIN: &str = "https://kick.com/";
 const CHECK_EVERY: Duration = Duration::from_secs(120);
 const WATCH_EVERY: Duration = Duration::from_secs(30);
 const WINDOW_SIZE: (f64, f64) = (1100.0, 760.0);
@@ -48,8 +49,9 @@ pub fn player_url(site: Site, channel: &str) -> String {
 #[derive(Clone, Debug)]
 struct Slot {
     label: String,
-    /// `None` é a página fixa de entrar na Twitch.
+    /// `None` é uma página fixa de entrar (`login`).
     site: Option<Site>,
+    login: Option<Site>,
     channel: Option<String>,
     url: Option<String>,
     loaded: bool,
@@ -65,6 +67,7 @@ struct LiveWindow {
     revealed: bool,
     selected: usize,
     twitch_login: Option<bool>,
+    kick_login: Option<bool>,
 }
 
 #[derive(Default)]
@@ -149,15 +152,18 @@ pub fn open(app: &AppHandle, id: Uuid) {
         LogicalSize::new(WINDOW_SIZE.0, WINDOW_SIZE.1),
     );
 
-    let mut sites = Vec::new();
+    let mut sites: Vec<(Option<Site>, Option<Site>)> = Vec::new();
     if twitch > 0 {
-        sites.push(None);
-        sites.extend(std::iter::repeat_n(Some(Site::Twitch), twitch));
+        sites.push((None, Some(Site::Twitch)));
+        sites.extend(std::iter::repeat_n((Some(Site::Twitch), None), twitch));
     }
-    sites.extend(std::iter::repeat_n(Some(Site::Kick), kick));
+    if kick > 0 {
+        sites.push((None, Some(Site::Kick)));
+        sites.extend(std::iter::repeat_n((Some(Site::Kick), None), kick));
+    }
     let mtm = MainThreadMarker::new().expect("lives criadas fora da main thread");
     let mut slots = Vec::new();
-    for (index, site) in sites.into_iter().enumerate() {
+    for (index, (site, login)) in sites.into_iter().enumerate() {
         let label = format!("live-{}-{index}", id.simple());
         let handle_label = label.clone();
         let builder = WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()))
@@ -183,6 +189,7 @@ pub fn open(app: &AppHandle, id: Uuid) {
         slots.push(Slot {
             label,
             site,
+            login,
             channel: None,
             url: None,
             loaded: false,
@@ -195,7 +202,7 @@ pub fn open(app: &AppHandle, id: Uuid) {
     }
     app.state::<Lives>().windows.lock().unwrap().insert(
         id,
-        LiveWindow { slots, revealed: false, selected: 0, twitch_login: None },
+        LiveWindow { slots, revealed: false, selected: 0, twitch_login: None, kick_login: None },
     );
 
     let handle = app.clone();
@@ -211,6 +218,9 @@ pub fn open(app: &AppHandle, id: Uuid) {
     layout(app, id);
     apply(app, id);
     app.state::<Lives>().check_now.store(true, Ordering::Relaxed);
+    if app.try_state::<crate::points::Points>().is_some() {
+        crate::points::delay(app);
+    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move { refresh_login(&app, id).await });
 }
@@ -394,16 +404,24 @@ pub fn apply_all(app: &AppHandle) {
     }
 }
 
-/// Com o login da Twitch na conta, a página de entrar sai; sem ele, os players da Twitch esperam.
+pub async fn has_cookie(app: &AppHandle, id: Uuid, domain: &str, name: &str) -> bool {
+    webkit::cookies(app, id, domain)
+        .await
+        .is_ok_and(|cookies| cookies.iter().any(|(n, v)| n == name && !v.is_empty()))
+}
+
+/// Com o login na conta, a página de entrar daquele site sai. Sem o da Twitch, os players dela esperam
+/// (sem login a Twitch não dá pontos); os da Kick tocam, mas os pontos só vêm com login.
 async fn refresh_login(app: &AppHandle, id: Uuid) {
-    let Ok(cookies) = webkit::cookies(app, id, "twitch.tv").await else { return };
-    let logged = cookies.iter().any(|(name, value)| name == "auth-token" && !value.is_empty());
+    let twitch = has_cookie(app, id, "twitch.tv", "auth-token").await;
+    let kick = has_cookie(app, id, "kick.com", "session_token").await;
     let changed = {
         let lives = app.state::<Lives>();
         let mut windows = lives.windows.lock().unwrap();
         let Some(state) = windows.get_mut(&id) else { return };
-        let changed = state.twitch_login != Some(logged);
-        state.twitch_login = Some(logged);
+        let changed = state.twitch_login != Some(twitch) || state.kick_login != Some(kick);
+        state.twitch_login = Some(twitch);
+        state.kick_login = Some(kick);
         changed
     };
     if !changed {
@@ -414,15 +432,36 @@ async fn refresh_login(app: &AppHandle, id: Uuid) {
         {
             let lives = handle.state::<Lives>();
             let mut windows = lives.windows.lock().unwrap();
-            if let Some(slot) = windows.get_mut(&id).and_then(|w| w.slots.iter_mut().find(|s| s.site.is_none())) {
-                let url = (!logged).then(|| TWITCH_LOGIN.to_owned());
-                if slot.url != url {
-                    navigate(&handle, slot, url, None);
+            if let Some(state) = windows.get_mut(&id) {
+                for slot in state.slots.iter_mut().filter(|s| s.login.is_some()) {
+                    let url = match slot.login {
+                        Some(Site::Twitch) => (!twitch).then(|| TWITCH_LOGIN.to_owned()),
+                        _ => (!kick).then(|| KICK_LOGIN.to_owned()),
+                    };
+                    if slot.url != url {
+                        navigate(&handle, slot, url, None);
+                    }
                 }
             }
         }
         apply(&handle, id);
     });
+}
+
+/// As páginas de live carregadas de um site na conta: (rótulo da webview, canal).
+pub fn live_pages(app: &AppHandle, id: Uuid, site: Site) -> Vec<(String, String)> {
+    let lives = app.state::<Lives>();
+    let windows = lives.windows.lock().unwrap();
+    windows
+        .get(&id)
+        .map(|w| {
+            w.slots
+                .iter()
+                .filter(|s| s.site == Some(site) && s.loaded)
+                .filter_map(|s| Some((s.label.clone(), s.channel.clone()?)))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 async fn check_loop(app: AppHandle) {
@@ -635,6 +674,7 @@ pub fn toggle_account(app: &AppHandle, id: Uuid) {
 
 /// A config das lives mudou: as janelas reabrem com os canais e as vagas novas.
 pub fn restart(app: &AppHandle) {
+    crate::points::restart(app);
     let lives = app.state::<Lives>();
     lives.live.lock().unwrap().clear();
     lives.answered.lock().unwrap().clear();
@@ -650,7 +690,14 @@ pub fn restart(app: &AppHandle) {
 
 // ---------- O que o deck mostra ----------
 
-fn site_summary(state: &LiveWindow, site: Site, limit: &LiveLimit, max: usize, answered: bool) -> Option<String> {
+fn site_summary(
+    state: &LiveWindow,
+    site: Site,
+    limit: &LiveLimit,
+    max: usize,
+    answered: bool,
+    points: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
     if max == 0 {
         return None;
     }
@@ -668,7 +715,9 @@ fn site_summary(state: &LiveWindow, site: Site, limit: &LiveLimit, max: usize, a
                     None => "",
                 };
                 let reloads = if s.reloads > 0 { format!(" ⟳{}", s.reloads) } else { String::new() };
-                format!("{}{mark}{reloads}", s.channel.as_deref().unwrap_or(""))
+                let channel = s.channel.as_deref().unwrap_or("");
+                let pts = points(channel).map(|p| format!(" ({p})")).unwrap_or_default();
+                format!("{channel}{mark}{reloads}{pts}")
             })
             .collect();
         format!("{name} no ar: {}", lives.join(", "))
@@ -682,19 +731,33 @@ fn site_summary(state: &LiveWindow, site: Site, limit: &LiveLimit, max: usize, a
 }
 
 pub fn summary(app: &AppHandle, id: Uuid) -> Option<String> {
-    let (limits, maxes) = app.state::<Deck>().read(|c| {
+    let (limits, maxes, chest) = app.state::<Deck>().read(|c| {
         let account = c.accounts.iter().find(|a| a.id == id)?;
-        Some((account.lives.clone(), [c.lives.slots(Site::Twitch), c.lives.slots(Site::Kick)]))
+        Some((account.lives.clone(), [c.lives.slots(Site::Twitch), c.lives.slots(Site::Kick)], c.lives.claim_chest))
     })?;
+    // Os pontos de cada live só aparecem com o resgate (ou o baú, na Twitch) ligado naquele site.
+    let shows_points = |site: Site| match site {
+        Site::Twitch => limits.redeem_twitch.is_some() || chest,
+        Site::Kick => limits.redeem_kick.is_some(),
+    };
+    let extra: Vec<String> = [Site::Twitch, Site::Kick]
+        .into_iter()
+        .filter(|s| shows_points(*s))
+        .filter_map(|s| crate::points::account_text(app, id, s))
+        .collect();
     let lives = app.state::<Lives>();
     let answered = lives.answered.lock().unwrap().clone();
     let windows = lives.windows.lock().unwrap();
     let state = windows.get(&id)?;
-    let parts: Vec<String> = [Site::Twitch, Site::Kick]
+    let mut parts: Vec<String> = [Site::Twitch, Site::Kick]
         .into_iter()
         .zip(maxes)
-        .filter_map(|(site, max)| site_summary(state, site, limits.limit(site), max, answered.contains(&site)))
+        .filter_map(|(site, max)| {
+            let points = |channel: &str| shows_points(site).then(|| crate::points::channel_text(app, id, site, channel)).flatten();
+            site_summary(state, site, limits.limit(site), max, answered.contains(&site), &points)
+        })
         .collect();
+    parts.extend(extra);
     Some(parts.join(" · "))
 }
 
@@ -757,9 +820,10 @@ fn ui_state(app: &AppHandle, id: Uuid) -> Option<UiState> {
         .enumerate()
         .filter(|(_, s)| s.url.is_some())
         .map(|(index, s)| UiTab {
-            title: match (s.site, &s.channel) {
-                (Some(site), Some(channel)) => format!("{} · {channel}", site.name()),
-                _ => "Twitch · entrar".to_owned(),
+            title: match (s.site, &s.channel, s.login) {
+                (Some(site), Some(channel), _) => format!("{} · {channel}", site.name()),
+                (_, _, Some(site)) => format!("{} · entrar", site.name()),
+                _ => String::new(),
             },
             selected: index == state.selected,
         })

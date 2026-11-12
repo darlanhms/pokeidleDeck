@@ -987,3 +987,14 @@ body.dialog .actions button {
   height: 32px;
   padding: 0 16px;
 }
+
+/* Registro dos resgates. */
+body.registro main {
+  height: 100vh;
+}
+
+body.registro pre {
+  flex: 1;
+  max-height: none;
+  min-height: 0;
+}

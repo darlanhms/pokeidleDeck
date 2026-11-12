@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "registro",
+  "description": "A janela do registro dos resgates",
+  "windows": ["registro"],
+  "permissions": ["core:default", "allow-registro-get", "allow-registro-open-file"]
+}
