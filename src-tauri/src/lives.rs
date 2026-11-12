@@ -3,7 +3,6 @@
 //! no data store da própria conta (onde ficam os logins da Twitch e da Kick), mudas.
 
 use crate::{
-    accounts::USER_AGENT,
     automation,
     config::{LiveLimit, Site, SlotChoice},
     deck::{self, Deck},
@@ -184,7 +183,6 @@ pub fn open(app: &AppHandle, id: Uuid) {
         let handle_label = label.clone();
         let builder = WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()));
         let builder = webkit::prepare(app, builder, Some(id), player)
-            .user_agent(USER_AGENT)
             .background_throttling(BackgroundThrottlingPolicy::Disabled)
             .initialization_script(VISIBLE_JS)
             .initialization_script(MUTE_JS)
@@ -828,7 +826,6 @@ pub fn set_points(app: &AppHandle, id: Uuid, on: bool) {
                 Err(_) => continue,
             };
             let builder = webkit::prepare(app, WebviewBuilder::new(&label, WebviewUrl::External(url)), Some(id), page)
-                .user_agent(USER_AGENT)
                 .initialization_script(PAUSE_JS)
                 .on_page_load(move |webview, payload| {
                     if matches!(payload.event(), PageLoadEvent::Finished) {

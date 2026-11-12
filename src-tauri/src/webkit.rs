@@ -46,7 +46,8 @@ pub fn prepare<R: Runtime>(_app: &AppHandle, builder: WebviewBuilder<R>, store: 
     if page.block_ads {
         add_block_list(&config);
     }
-    builder.with_webview_configuration(config)
+    // O jogo e a Twitch/Kick só aceitam o WKWebView como Safari.
+    builder.with_webview_configuration(config).user_agent(crate::accounts::USER_AGENT)
 }
 
 /// Depois de criada: com `keep_running_hidden`, o WebKit também deixa de olhar se a janela está coberta.

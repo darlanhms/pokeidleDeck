@@ -72,8 +72,7 @@ async fn kick_checker(app: &AppHandle, first: &str) -> Option<Webview> {
             let created = crate::deck::main_window(&handle).and_then(|window| {
                 let webview = window
                     .add_child(
-                        webkit::prepare(&handle, WebviewBuilder::new(KICK_CHECKER, WebviewUrl::External(url)), None, Default::default())
-                            .user_agent(USER_AGENT),
+                        webkit::prepare(&handle, WebviewBuilder::new(KICK_CHECKER, WebviewUrl::External(url)), None, Default::default()),
                         LogicalPosition::new(0.0, 0.0),
                         LogicalSize::new(10.0, 10.0),
                     )

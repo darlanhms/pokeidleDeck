@@ -45,7 +45,6 @@ pub fn spawn(window: &Window, account: &Account) -> tauri::Result<Webview> {
     let motion = automation::MOTION_JS.replace("__DECK_REDUCE_MOTION__", if reduce_motion { "true" } else { "false" });
     let builder = WebviewBuilder::new(label(&id), WebviewUrl::External(GAME_URL.parse().unwrap()));
     let builder = webkit::prepare(window.app_handle(), builder, Some(id), page)
-        .user_agent(USER_AGENT)
         .background_throttling(BackgroundThrottlingPolicy::Disabled)
         .initialization_script(KEYS_JS)
         .initialization_script(motion)
