@@ -6,22 +6,22 @@
 
 **Até 4 contas do [PokeIdle](https://pokeidle.io) numa janela só, com recompra e lives no automático.**
 
-[![Baixar para macOS](https://img.shields.io/github/v/release/darlanhms/pokeidleDeck?label=baixar&logo=apple&color=f0a63a)](https://github.com/darlanhms/pokeidleDeck/releases/latest)
+[![Baixar](https://img.shields.io/github/v/release/darlanhms/pokeidleDeck?label=baixar&color=f0a63a)](https://github.com/darlanhms/pokeidleDeck/releases/latest)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-2a2e37?logo=apple)
-![Apple Silicon e Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-2a2e37)
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-2a2e37?logo=windows)
 [![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-2a2e37)](LICENSE)
 
-[Instalar](#instalar-no-macos) · [O que faz](#o-que-ele-faz) · [Primeiros passos](#primeiros-passos)
+[macOS](#instalar-no-macos) · [Windows](#instalar-no-windows) · [O que faz](#o-que-ele-faz) · [Primeiros passos](#primeiros-passos)
 
 </div>
 
 ---
 
-Um app para macOS que joga o [PokeIdle](https://pokeidle.io) em até 4 contas ao mesmo tempo, numa janela só, e
+Um app para macOS e Windows que joga o [PokeIdle](https://pokeidle.io) em até 4 contas ao mesmo tempo, numa janela só, e
 cuida sozinho do que é repetitivo: comprar itens, e assistir às lives da Twitch e da Kick para ganhar o bônus do
 jogo.
 
-É a versão para Mac do [PokeIdleMulti](https://github.com/artbruno35/PokeIdleMulti), que existe só para Windows.
+Nasceu como a versão para Mac do [PokeIdleMulti](https://github.com/artbruno35/PokeIdleMulti), que é só para Windows.
 
 ## O que ele faz
 
@@ -79,6 +79,22 @@ Se em vez disso o macOS disser que o app **está danificado**, rode no Terminal 
 ```
 xattr -cr "/Applications/PokeIdle Deck.app"
 ```
+
+## Instalar no Windows
+
+Precisa do Windows 10 ou 11 (64 bits).
+
+1. Baixe o arquivo `PokeIdle Deck_<versão>_x64-setup.exe` do último lançamento, na página de
+   [Releases](https://github.com/darlanhms/pokeidleDeck/releases).
+2. Abra o instalador. Ele instala só para o seu usuário, sem pedir senha de administrador.
+3. Se o Windows não tiver o WebView2 (o motor do Edge), o instalador baixa sozinho.
+
+### Liberar na primeira vez ("Executar assim mesmo")
+
+O instalador não é assinado, então o Windows SmartScreen pode avisar que "o Windows protegeu o computador":
+
+1. Clique em **Mais informações**.
+2. Clique em **Executar assim mesmo**.
 
 ### Primeiros passos
 
