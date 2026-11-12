@@ -111,6 +111,7 @@ pub struct PaneView {
     pub status: Status,
     pub started_at: Option<u64>,
     pub focused: bool,
+    pub restock_on: bool,
     /// Relativo à webview do deck; `None` é conta escondida pelo modo ampliada.
     pub rect: Option<layout::Rect>,
 }
@@ -125,6 +126,9 @@ pub struct DeckView {
     pub can_add: bool,
     pub removed: usize,
     pub fullscreen: bool,
+    pub ultra: bool,
+    pub reduce_motion: bool,
+    pub echo: bool,
     pub header: f64,
     pub top_bar: f64,
     pub bottom_bar: f64,
@@ -258,6 +262,7 @@ pub fn view(app: &AppHandle) -> Option<DeckView> {
     let size = window.inner_size().ok()?.to_logical::<f64>(scale);
     let fullscreen = window.is_fullscreen().unwrap_or(false);
     let deck = app.state::<Deck>();
+    let echo = app.state::<crate::automation::Automation>().echo();
     let height = size.height - deck.inset();
     let area = layout::Rect {
         x: 0.0,
@@ -282,6 +287,7 @@ pub fn view(app: &AppHandle) -> Option<DeckView> {
                     status: if account.off { Status::Off } else { runtime.status },
                     started_at: runtime.started_at,
                     focused: config.layout == LayoutMode::Focus && config.focused == Some(account.id),
+                    restock_on: account.restock.on,
                     rect,
                 }
             })
@@ -294,6 +300,9 @@ pub fn view(app: &AppHandle) -> Option<DeckView> {
             can_add: config.accounts.len() < MAX_ACCOUNTS,
             removed: config.removed.len(),
             fullscreen,
+            ultra: config.ultra,
+            reduce_motion: config.reduce_motion,
+            echo,
             header: HEADER,
             top_bar: TOP_BAR,
             bottom_bar: BOTTOM_BAR,

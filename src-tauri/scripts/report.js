@@ -1,5 +1,5 @@
-// Spike: a página do jogo manda ao deck, a cada segundo, o ouro (lido do recompra.js, que acompanha o
-// socket do jogo) e se está na tela de login.
+// A página do jogo manda ao deck, a cada segundo, o resumo da recompra (o recompra.js acompanha o socket
+// do jogo: ouro, estoque, registro) e se está na tela de login.
 (() => {
   if (window.top !== window || window.__deckReport) return;
   Object.defineProperty(window, '__deckReport', { value: true });
@@ -22,6 +22,7 @@
       connected: !!(s && s.connected),
       login: loginScreen(),
       url: location.href,
+      restock: s,
     };
     invoke('account_report', { report }).catch(() => { });
   }, 1000);

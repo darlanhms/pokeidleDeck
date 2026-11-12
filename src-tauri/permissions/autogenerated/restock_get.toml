@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-restock-get"
+description = "Enables the restock_get command without any pre-configured scope."
+commands.allow = ["restock_get"]
+
+[[permission]]
+identifier = "deny-restock-get"
+description = "Denies the restock_get command without any pre-configured scope."
+commands.deny = ["restock_get"]

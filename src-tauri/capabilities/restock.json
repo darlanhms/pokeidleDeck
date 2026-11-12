@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "restock",
+  "description": "A janela da recompra de cada conta",
+  "windows": ["restock-*"],
+  "permissions": ["core:default", "allow-restock-get", "allow-restock-set"]
+}

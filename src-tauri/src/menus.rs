@@ -2,7 +2,7 @@
 //! cima das webviews das contas, então nada disso pode ser dropdown da página.
 
 use crate::{
-    accounts,
+    accounts, automation,
     config::{LayoutMode, MAX_ACCOUNTS, ZOOM_LEVELS},
     deck::{self, Deck},
 };
@@ -180,6 +180,23 @@ pub fn zoom_menu(app: AppHandle, window: Window, x: f64, y: f64) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn ultra_menu(app: AppHandle, window: Window, x: f64, y: f64) -> Result<(), String> {
+    let (ultra, reduce) = app.state::<Deck>().read(|c| (c.ultra, c.reduce_motion));
+    let build = || -> tauri::Result<Menu<Wry>> {
+        Menu::with_items(
+            &app,
+            &[
+                &item(&app, "deck:ultra", if ultra { "Desligar o ULTRA" } else { "Ligar o ULTRA (em todas as contas)" }, true, None)?,
+                &PredefinedMenuItem::separator(&app)?,
+                &CheckMenuItem::with_id(&app, "deck:motion", "Menos animações", true, reduce, None::<&str>)?,
+            ],
+        )
+    };
+    let menu = build().map_err(|e| e.to_string())?;
+    popup_at(&app, &window, &menu, x, y)
+}
+
+#[tauri::command]
 pub fn account_menu(app: AppHandle, window: Window, id: Uuid) -> Result<(), String> {
     let accounts = app.state::<Deck>().accounts();
     let Some(index) = accounts.iter().position(|a| a.id == id) else { return Ok(()) };
@@ -209,6 +226,7 @@ pub fn account_menu(app: AppHandle, window: Window, id: Uuid) -> Result<(), Stri
                 &entry("reload", "Recarregar a página", !account.off)?,
                 &entry("mute", if account.muted { "Ligar o som" } else { "Desligar o som" }, true)?,
                 &entry("rename", "Renomear…", true)?,
+                &entry("restock", "Recompra…", true)?,
                 &entry("power", if account.off { "Ligar esta conta" } else { "Desligar esta conta (fica no deck, sem rodar nada)" }, true)?,
                 &PredefinedMenuItem::separator(&app)?,
                 &swap_submenu()?,
@@ -257,6 +275,7 @@ pub fn dispatch(app: &AppHandle, action: &str) {
                     }
                 }
                 "inspect" => accounts::inspect(app, id),
+                "restock" => automation::open_restock(app, id),
                 "remove" => accounts::confirm_remove(app, id),
                 _ => {}
             }
@@ -298,6 +317,9 @@ pub fn dispatch(app: &AppHandle, action: &str) {
             deck::refresh(app);
         }
         (Some("deck"), Some("fullscreen")) => toggle_fullscreen(app),
+        (Some("deck"), Some("ultra")) => automation::set_ultra(app, !deck.read(|c| c.ultra)),
+        (Some("deck"), Some("motion")) => automation::set_reduce_motion(app, !deck.read(|c| c.reduce_motion)),
+        (Some("deck"), Some("echo")) => automation::set_echo(app, !app.state::<automation::Automation>().echo()),
         _ => {}
     }
 }

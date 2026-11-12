@@ -17,6 +17,65 @@ pub struct Account {
     pub off: bool,
     #[serde(default)]
     pub muted: bool,
+    #[serde(default)]
+    pub restock: RestockConfig,
+}
+
+pub const MAX_STOCK: i64 = 10_000_000;
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RestockRule {
+    pub on: bool,
+    /// Item do catálogo do jogo (a pokebola ou a poção; 0 na poção é "melhor custo-benefício").
+    pub id: i64,
+    pub keep: i64,
+    pub below: i64,
+}
+
+/// A recompra de uma conta, no formato que o `recompra.js` lê em `configure`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RestockConfig {
+    pub on: bool,
+    pub balls: RestockRule,
+    /// Contados juntos; compra sempre o mais barato.
+    pub revives: RestockRule,
+    /// Contadas juntas.
+    pub potions: RestockRule,
+    /// Pôr a poção escolhida em 1º na fila da automação "Usar Poções" (a ordem dela é a ordem de gasto).
+    pub potion_first: bool,
+    /// Nunca comprar a ponto de o ouro ficar abaixo disto.
+    pub gold_floor: i64,
+}
+
+pub const ULTRA_BALL: i64 = 4;
+pub const ULTIMATE_POTION: i64 = 204;
+
+impl Default for RestockConfig {
+    fn default() -> Self {
+        Self {
+            on: false,
+            balls: RestockRule { on: true, id: ULTRA_BALL, keep: 30_000, below: 5_000 },
+            revives: RestockRule { on: true, id: 0, keep: 500, below: 100 },
+            potions: RestockRule { on: true, id: ULTIMATE_POTION, keep: 5_000, below: 2_000 },
+            potion_first: true,
+            gold_floor: 1_000_000,
+        }
+    }
+}
+
+impl RestockConfig {
+    /// O que veio da janela ou de um deck.json editado à mão, dentro dos limites.
+    pub fn normalized(mut self) -> Self {
+        for rule in [&mut self.balls, &mut self.revives, &mut self.potions] {
+            rule.keep = rule.keep.clamp(0, MAX_STOCK);
+            rule.below = rule.below.clamp(0, MAX_STOCK);
+            rule.id = rule.id.max(0);
+        }
+        self.gold_floor = self.gold_floor.max(0);
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +115,10 @@ pub struct DeckConfig {
     pub zoom_outside_focus: Option<f64>,
     pub window: Option<WindowBounds>,
     pub maximized: bool,
+    /// O Modo ULTRA Economia do jogo em todas as contas; a que recarrega volta a ele sozinha.
+    pub ultra: bool,
+    /// A página vê o "reduzir movimento" ligado e o jogo corta as animações contínuas.
+    pub reduce_motion: bool,
 }
 
 impl Default for DeckConfig {
@@ -72,6 +135,8 @@ impl Default for DeckConfig {
             zoom_outside_focus: None,
             window: None,
             maximized: false,
+            ultra: false,
+            reduce_motion: true,
         }
     }
 }
@@ -104,7 +169,7 @@ impl DeckConfig {
             .map(|n| format!("Conta {n}"))
             .find(|name| !taken(name))
             .expect("sequência infinita");
-        Account { id: Uuid::new_v4(), name, off: false, muted: false }
+        Account { id: Uuid::new_v4(), name, off: false, muted: false, restock: RestockConfig::default() }
     }
 
     pub fn account_mut(&mut self, id: Uuid) -> Option<&mut Account> {
@@ -240,5 +305,18 @@ mod tests {
         assert_eq!(config.accounts[0].name, "Main");
         assert!(!config.accounts[0].off);
         assert_eq!(config.zoom, 1.0);
+        assert!(config.reduce_motion);
+        assert_eq!(config.accounts[0].restock.balls.id, ULTRA_BALL);
+    }
+
+    #[test]
+    fn restock_serializes_like_recompra_js_expects() {
+        let json = serde_json::to_value(RestockConfig::default()).unwrap();
+        assert_eq!(json["potionFirst"], true);
+        assert_eq!(json["goldFloor"], 1_000_000);
+        assert_eq!(json["potions"]["id"], ULTIMATE_POTION);
+        let wild: RestockConfig = serde_json::from_str(r#"{"balls":{"keep":-5,"below":99999999999}}"#).unwrap();
+        let fixed = wild.normalized();
+        assert_eq!((fixed.balls.keep, fixed.balls.below), (0, MAX_STOCK));
     }
 }

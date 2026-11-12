@@ -204,6 +204,10 @@ button.with-icon svg {
   height: 13px;
 }
 
+button.with-icon svg:first-child {
+  margin-right: 2px;
+}
+
 button.icon-only {
   display: flex;
   align-items: center;
@@ -233,6 +237,21 @@ button.icon-only {
 
 .pane-header button:hover {
   background: var(--button-hover);
+}
+
+.pane-header button.cart.on {
+  color: var(--ok);
+}
+
+.pane-header button.cart.waiting {
+  color: var(--warn);
+}
+
+#echo.active,
+#ultra.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1b1b1b;
 }
 
 .pane-header button.power.off {
@@ -299,4 +318,92 @@ body.prompt .actions {
 button.primary {
   background: var(--active);
   border-color: var(--active);
+}
+
+/* Janelas de configuração (recompra). */
+body.dialog {
+  height: auto;
+  min-height: 100vh;
+  overflow: auto;
+  background: var(--bar);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+body.dialog main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+body.dialog fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+body.dialog legend {
+  color: var(--muted);
+  padding: 0 4px;
+}
+
+body.dialog .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+body.dialog label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body.dialog .check.strong {
+  font-weight: 600;
+}
+
+body.dialog input.count,
+body.dialog select {
+  font: inherit;
+  color: var(--text);
+  background: var(--back);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+}
+
+body.dialog input.count {
+  width: 110px;
+  text-align: right;
+}
+
+body.dialog .info,
+body.dialog .state {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-line;
+}
+
+body.dialog .state.ok {
+  color: var(--ok);
+}
+
+body.dialog .state.warn {
+  color: var(--warn);
+}
+
+body.dialog pre {
+  margin: 0;
+  height: 130px;
+  overflow: auto;
+  font: 11.5px ui-monospace, Menlo, monospace;
+  color: var(--muted);
+  white-space: pre-wrap;
 }

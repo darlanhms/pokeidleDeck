@@ -12,6 +12,7 @@ type Pane = {
   status: Status;
   startedAt: number | null;
   focused: boolean;
+  restockOn: boolean;
   rect: Rect | null;
 };
 type LayoutMode = "grid" | "columns" | "focus";
@@ -23,11 +24,22 @@ type DeckView = {
   canAdd: boolean;
   removed: number;
   fullscreen: boolean;
+  ultra: boolean;
+  reduceMotion: boolean;
+  echo: boolean;
   header: number;
   topBar: number;
   bottomBar: number;
 };
-type Report = { gold: number | null; nick: string | null; connected: boolean; login: boolean; url: string };
+type Restock = { configured: boolean; on: boolean; connected: boolean; paused?: boolean; gold?: number; log: string[] };
+type Report = {
+  gold: number | null;
+  nick: string | null;
+  connected: boolean;
+  login: boolean;
+  url: string;
+  restock: Restock | null;
+};
 type KickSnapshot = {
   channel: string;
   elapsedSecs: number;
@@ -41,6 +53,7 @@ const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>
 const reports = new Map<string, Report>();
 const gold = new Intl.NumberFormat("pt-BR");
 let view: DeckView | null = null;
+const notes = new Map<string, { text: string; until: number }>();
 let dragging: { id: string; x: number; y: number; active: boolean } | null = null;
 
 const action = (name: string) => invoke("deck_action", { action: name });
@@ -58,6 +71,8 @@ function uptime(since: number): string {
 }
 
 function info(pane: Pane): { text: string; warn: boolean } {
+  const note = notes.get(pane.id);
+  if (note && note.until > Date.now()) return { text: note.text, warn: true };
   if (pane.off) return { text: "desligada", warn: false };
   if (pane.status === "starting") return { text: "abrindo…", warn: false };
   if (pane.status === "loading") return { text: "carregando…", warn: false };
@@ -111,6 +126,10 @@ function renderTop(v: DeckView) {
   $<HTMLButtonElement>("#zoom-menu").textContent = `Zoom ${Math.round(v.zoom * 100)}%`;
   $<HTMLButtonElement>("#zoom-out").disabled = v.zoom <= ZOOM_MIN + 0.001;
   $<HTMLButtonElement>("#zoom-in").disabled = v.zoom >= ZOOM_MAX - 0.001;
+  $("#echo").classList.toggle("active", v.echo);
+  $("#echo").lastChild!.textContent = v.echo ? "Eco ligado" : "Eco";
+  $("#ultra").classList.toggle("active", v.ultra);
+  $("#ultra").lastChild!.textContent = v.ultra ? "ULTRA ligado" : "ULTRA";
   const fullscreen = $<HTMLButtonElement>("#fullscreen");
   fullscreen.innerHTML = v.fullscreen ? icons.exitFullscreen : icons.fullscreen;
   fullscreen.title = v.fullscreen ? "Sair da tela cheia (F11)" : "Tela cheia (F11)";
@@ -132,7 +151,18 @@ function renderPanes(v: DeckView) {
       el("span", { className: `info ${status.warn ? "warn" : ""}`, textContent: status.text, title: status.text }),
     );
     if (!pane.off) {
+      const restock = reports.get(pane.id)?.restock;
+      const working = pane.restockOn && !!restock?.connected && !restock.paused;
+      const cartState = !pane.restockOn ? "" : working ? "on" : "waiting";
+      const cartTitle = !pane.restockOn
+        ? "Recompra desligada: clique para configurar e ligar (pokebolas, revives e poções no Market do NPC)"
+        : !restock?.connected
+          ? "Recompra ligada: esperando o jogo conectar"
+          : restock.paused
+            ? "Recompra ligada, em pausa (veja o registro)"
+            : `Recompra ligada${restock.log.length ? `\n${restock.log[restock.log.length - 1]}` : ""}`;
       header.append(
+        headerButton(icons.cart, cartTitle, () => action(`acc:restock:${pane.id}`), `cart ${cartState}`),
         headerButton(pane.muted ? icons.muted : icons.sound, "Ligar / desligar o som desta conta", () => action(`acc:mute:${pane.id}`)),
         headerButton(icons.reload, "Recarregar a página", () => action(`acc:reload:${pane.id}`)),
       );
@@ -238,6 +268,15 @@ function renderKick(snapshot: KickSnapshot | null) {
 }
 
 $("#accounts-menu").insertAdjacentHTML("beforeend", icons.chevron);
+$("#echo").insertAdjacentHTML("afterbegin", icons.echo);
+$("#ultra").insertAdjacentHTML("afterbegin", icons.zap);
+$("#ultra-menu").innerHTML = icons.chevron;
+$("#echo").addEventListener("click", () => action("deck:echo"));
+$("#ultra").addEventListener("click", () => action("deck:ultra"));
+$("#ultra-menu").addEventListener("click", (e) => {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  invoke("ultra_menu", { x: rect.left, y: rect.bottom });
+});
 for (const button of document.querySelectorAll<HTMLButtonElement>("#layouts button")) {
   button.addEventListener("click", () => action(`deck:layout:${button.dataset.layout}`));
 }
@@ -269,6 +308,12 @@ listen<{ id: string; report: Report }>("report", (e) => {
   if (before !== JSON.stringify(e.payload.report)) render();
 });
 listen<KickSnapshot>("kick", (e) => renderKick(e.payload));
+const NOTE_MS = 4000;
+listen<{ id: string; text: string }>("note", (e) => {
+  notes.set(e.payload.id, { text: e.payload.text, until: Date.now() + NOTE_MS });
+  render();
+  setTimeout(render, NOTE_MS + 50);
+});
 
 invoke<DeckView | null>("deck_state").then((v) => {
   if (v) view = v;

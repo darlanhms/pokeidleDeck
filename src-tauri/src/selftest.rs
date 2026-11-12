@@ -1,5 +1,6 @@
 //! Autotestes. `DECK_SELFTEST=1`, depois `2` com o mesmo `DECK_DATA_DIR`: isolamento das contas.
-//! `shell`: layouts, ampliar, zoom, desligar, renomear, reordenar, remover e restaurar. Marca cada conta com um cookie e um item de localStorage no pokeidle.io e confere
+//! `shell`: layouts, ampliar, zoom, desligar, renomear, reordenar, remover e restaurar.
+//! `auto`: menos animações, eco, ULTRA e recompra, na tela de login (sem precisar de conta). Marca cada conta com um cookie e um item de localStorage no pokeidle.io e confere
 //! quem enxerga o quê, antes e depois de reabrir o app.
 
 use crate::{config::DeckConfig, deck, webkit};
@@ -38,6 +39,7 @@ pub fn start(app: AppHandle, phase: String) {
             "2" => phase_two(&app, &mut report).await,
             "menu" => return menu_over_webviews(&app).await,
             "shell" => shell(&app, &mut report).await,
+            "auto" => automations(&app, &mut report).await,
             other => report.check(false, format!("fase desconhecida: {other}")),
         }
         let path = deck::data_dir(&app).join(format!("selftest-{phase}.txt"));
@@ -228,6 +230,16 @@ async fn menu_over_webviews(app: &AppHandle) {
             .status();
         println!("[selftest] janela {number} em {} ({status:?})", shot.display());
     }
+    act(app, format!("acc:restock:{first}")).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let restock = app
+        .get_webview_window(&format!("restock-{}", first.simple()))
+        .and_then(|w| w.ns_window().ok())
+        .map(|p| unsafe { (*(p as *const objc2_app_kit::NSWindow)).windowNumber() });
+    if let Some(number) = restock {
+        let shot = deck::data_dir(app).join("restock.png");
+        let _ = std::process::Command::new("screencapture").args(["-x", "-o", "-l", &number.to_string()]).arg(&shot).status();
+    }
     app.exit(0);
 }
 
@@ -373,4 +385,115 @@ async fn shell(app: &AppHandle, report: &mut Report) {
     }
     let v = view(app);
     report.check(v.panes.len() == 1 && v.removed == 0, "a última conta não sai do deck");
+}
+
+const MOTION_PROBE_JS: &str = "let active = 0;\n\
+    const walk = (rules) => { for (const r of rules) { if (r instanceof CSSMediaRule && r.media.mediaText === 'all') active++; if (r.cssRules) walk(r.cssRules); } };\n\
+    for (const s of document.styleSheets) { try { walk(s.cssRules); } catch {} }\n\
+    return { matches: matchMedia('(prefers-reduced-motion: reduce)').matches, active };";
+
+const ECHO_TARGET_JS: &str = "document.getElementById('deck-eco')?.remove();\n\
+    const b = document.createElement('button'); b.id = 'deck-eco'; b.textContent = 'Teste do eco';\n\
+    b.dataset.count = '0'; b.onclick = () => { b.dataset.count = String(Number(b.dataset.count) + 1); };\n\
+    document.body.append(b); return true;";
+
+async fn automations(app: &AppHandle, report: &mut Report) {
+    let a = app.state::<deck::Deck>().accounts()[0].id;
+    let Some(b) = on_main(app, crate::accounts::add).await else {
+        return report.check(false, "não criou a 2ª conta");
+    };
+    for id in [a, b] {
+        let loaded = wait_loaded(app, id).await;
+        report.check(loaded, format!("{id} carregou"));
+    }
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let on = eval(app, a, MOTION_PROBE_JS).await;
+    report.check(
+        matches!(&on, Ok(v) if v["matches"] == true && v["active"].as_u64().unwrap_or(0) > 50),
+        format!("menos animações (de fábrica): matchMedia e as regras @media do CSS ligadas ({on:?})"),
+    );
+    act(app, "deck:motion".into()).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let off = eval(app, a, MOTION_PROBE_JS).await;
+    report.check(
+        matches!(&off, Ok(v) if v["active"] == 0),
+        format!("desligar menos animações volta o CSS ({off:?})"),
+    );
+    act(app, "deck:motion".into()).await;
+
+    for id in [a, b] {
+        let _ = eval(app, id, ECHO_TARGET_JS).await;
+    }
+    let click = crate::automation::Click {
+        path: "body > button".into(),
+        tag: "button".into(),
+        text: "Teste do eco".into(),
+        fx: 0.5,
+        fy: 0.5,
+    };
+    crate::automation::echo_from(app, a, click.clone()).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let count = |id| async move { eval(app, id, "return document.getElementById('deck-eco').dataset.count").await };
+    let off_b = count(b).await;
+    report.check(off_b.as_ref().is_ok_and(|v| v == "0"), format!("eco desligado: nada se repete ({off_b:?})"));
+    act(app, "deck:echo".into()).await;
+    crate::automation::echo_from(app, a, click).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let (on_a, on_b) = (count(a).await, count(b).await);
+    report.check(
+        on_b.as_ref().is_ok_and(|v| v == "1") && on_a.as_ref().is_ok_and(|v| v == "0"),
+        format!("eco ligado: o clique da 1ª se repete só na 2ª (1ª {on_a:?}, 2ª {on_b:?})"),
+    );
+    act(app, "deck:echo".into()).await;
+
+    let ultra_state = |id| async move { eval(app, id, crate::automation::ULTRA_STATE_JS).await };
+    act(app, "deck:ultra".into()).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let chosen = ultra_state(b).await;
+    report.check(
+        chosen.as_ref().is_ok_and(|v| v == "escolhido" || v == "ligado"),
+        format!("ULTRA fora do jogo fica escolhido para quando entrar ({chosen:?})"),
+    );
+    on_main(app, move |app| crate::accounts::reload(app, b)).await;
+    let _ = wait_loaded(app, b).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let after_reload = ultra_state(b).await;
+    report.check(
+        after_reload.as_ref().is_ok_and(|v| v == "escolhido" || v == "ligado"),
+        format!("conta recarregada continua no ULTRA ({after_reload:?})"),
+    );
+    act(app, "deck:ultra".into()).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let cleared = ultra_state(b).await;
+    report.check(cleared.as_ref().is_ok_and(|v| v == "fora" || v == "normal"), format!("desligar o ULTRA ({cleared:?})"));
+
+    let mut config = crate::config::RestockConfig::default();
+    config.on = true;
+    config.balls.keep = 12_345;
+    crate::automation::set_restock(app, a, config).await;
+    let summary = eval(app, a, "return window.__deckRecompra.summary()").await;
+    report.check(
+        matches!(&summary, Ok(v) if v["configured"] == true && v["on"] == true),
+        format!("recompra: a configuração chega no recompra.js da página ({:?})", summary.as_ref().map(|v| (&v["configured"], &v["on"]))),
+    );
+    let saved = app.state::<deck::Deck>().accounts()[0].restock.clone();
+    report.check(saved.on && saved.balls.keep == 12_345, "recompra: salva no deck.json");
+    let restored = eval(app, b, "return window.__deckRecompra.summary().on").await;
+    report.check(restored.as_ref().is_ok_and(|v| v == false), "recompra: a outra conta continua desligada");
+
+    act(app, format!("acc:restock:{a}")).await;
+    let mut title = String::new();
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        if let Some(window) = app.get_webview_window(&format!("restock-{}", a.simple())) {
+            if let Ok(t) = webkit::call_async(window.as_ref(), "return document.getElementById('balls-keep').value", Duration::from_secs(5)).await {
+                title = t;
+                if title.contains("12.345") {
+                    break;
+                }
+            }
+        }
+    }
+    report.check(title.contains("12.345"), format!("janela da recompra abre com a config da conta ({title})"));
 }

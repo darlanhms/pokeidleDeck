@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-account-click"
+description = "Enables the account_click command without any pre-configured scope."
+commands.allow = ["account_click"]
+
+[[permission]]
+identifier = "deny-account-click"
+description = "Denies the account_click command without any pre-configured scope."
+commands.deny = ["account_click"]

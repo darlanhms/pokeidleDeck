@@ -2,6 +2,7 @@
 compile_error!("O PokeIdle Deck só roda no macOS 14+.");
 
 mod accounts;
+mod automation;
 mod config;
 mod deck;
 mod kick;
@@ -18,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(menus::AppMenuState::default())
         .manage(prompt::PromptState::default())
+        .manage(automation::Automation::default())
         .invoke_handler(tauri::generate_handler![
             menus::deck_state,
             menus::deck_action,
@@ -25,6 +27,10 @@ pub fn run() {
             menus::zoom_menu,
             menus::account_menu,
             menus::page_key,
+            menus::ultra_menu,
+            automation::account_click,
+            automation::restock_get,
+            automation::restock_set,
             accounts::account_eval,
             accounts::account_report,
             prompt::prompt_info,

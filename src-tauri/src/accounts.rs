@@ -1,6 +1,7 @@
 //! As contas: a webview de cada uma e o que se faz com ela. Tudo aqui roda na main thread.
 
 use crate::{
+    automation,
     config::{Account, MAX_ACCOUNTS},
     deck::{self, Deck, Status},
     prompt, webkit,
@@ -40,11 +41,15 @@ fn webview(app: &AppHandle, id: Uuid) -> Option<Webview> {
 pub fn spawn(window: &Window, account: &Account) -> tauri::Result<Webview> {
     let mtm = MainThreadMarker::new().expect("webview de conta criada fora da main thread");
     let id = account.id;
+    let reduce_motion = window.app_handle().state::<Deck>().read(|c| c.reduce_motion);
+    let motion = automation::MOTION_JS.replace("__DECK_REDUCE_MOTION__", if reduce_motion { "true" } else { "false" });
     let builder = WebviewBuilder::new(label(&id), WebviewUrl::External(GAME_URL.parse().unwrap()))
         .with_webview_configuration(webkit::configuration(mtm, Some(id), false, true))
         .user_agent(USER_AGENT)
         .background_throttling(BackgroundThrottlingPolicy::Disabled)
         .initialization_script(KEYS_JS)
+        .initialization_script(motion)
+        .initialization_script(automation::ECHO_JS)
         .initialization_script(RECOMPRA_JS)
         .initialization_script(REPORT_JS)
         .on_page_load(move |webview, payload| {
@@ -56,10 +61,15 @@ pub fn spawn(window: &Window, account: &Account) -> tauri::Result<Webview> {
             let deck = app.state::<Deck>();
             match payload.event() {
                 PageLoadEvent::Started => deck.set_runtime(id, |r| r.status = Status::Loading),
-                PageLoadEvent::Finished => deck.set_runtime(id, |r| {
-                    r.status = Status::Ok;
-                    r.started_at.get_or_insert_with(deck::now_ms);
-                }),
+                PageLoadEvent::Finished => {
+                    deck.set_runtime(id, |r| {
+                        r.status = Status::Ok;
+                        r.started_at.get_or_insert_with(deck::now_ms);
+                    });
+                    if payload.url().host_str() == Some("pokeidle.io") {
+                        automation::on_game_loaded(app, id);
+                    }
+                }
             }
             deck::refresh_later(app);
         });
@@ -286,6 +296,7 @@ pub async fn account_report(app: AppHandle, webview: Webview, report: serde_json
     use tauri::Emitter;
     if let Some(id) = id_from_label(webview.label()) {
         app.state::<Deck>().set_report(id, report.clone());
+        automation::on_report(&app, id, &report);
         let _ = app.emit_to("deck", "report", serde_json::json!({ "id": id, "report": report }));
     }
 }

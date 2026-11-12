@@ -9,6 +9,7 @@
     "allow-deck-action",
     "allow-deck-menu",
     "allow-zoom-menu",
+    "allow-ultra-menu",
     "allow-account-menu",
     "allow-page-key",
     "allow-account-eval",

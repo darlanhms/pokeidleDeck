@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ultra-menu"
+description = "Enables the ultra_menu command without any pre-configured scope."
+commands.allow = ["ultra_menu"]
+
+[[permission]]
+identifier = "deny-ultra-menu"
+description = "Denies the ultra_menu command without any pre-configured scope."
+commands.deny = ["ultra_menu"]

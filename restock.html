@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Recompra</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/restock.ts" defer></script>
+  </head>
+  <body class="dialog">
+    <main>
+      <label class="check strong"><input type="checkbox" id="on" /> Recompra ligada nesta conta</label>
+      <p class="state" id="state"></p>
+
+      <fieldset>
+        <legend>Pokébola</legend>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="balls-on" /> Recomprar</label>
+          <label>Qual: <select id="ball"></select></label>
+        </div>
+        <div class="row">
+          <label>Manter <input class="count" id="balls-keep" /></label>
+          <label>Recomprar abaixo de <input class="count" id="balls-below" /></label>
+        </div>
+        <p class="info" id="balls-info"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Revives</legend>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="revives-on" /> Recomprar (sempre o revive mais barato)</label>
+        </div>
+        <div class="row">
+          <label>Manter (todos os revives) <input class="count" id="revives-keep" /></label>
+          <label>Recomprar abaixo de <input class="count" id="revives-below" /></label>
+        </div>
+        <p class="info" id="revives-info"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Poções</legend>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="potions-on" /> Recomprar</label>
+          <label>Qual comprar: <select id="potion"></select></label>
+        </div>
+        <div class="row">
+          <label>Manter (todas as poções) <input class="count" id="potions-keep" /></label>
+          <label>Recomprar abaixo de <input class="count" id="potions-below" /></label>
+        </div>
+        <label class="check"><input type="checkbox" id="potion-first" /> Pôr a poção escolhida em 1º na fila da automação "Usar Poções"</label>
+        <p class="info" id="potions-info"></p>
+      </fieldset>
+
+      <div class="row">
+        <label>Nunca deixar o ouro abaixo de <input class="count" id="gold-floor" /></label>
+        <span class="info" id="gold"></span>
+      </div>
+
+      <fieldset>
+        <legend>Registro</legend>
+        <pre id="log"></pre>
+      </fieldset>
+
+      <p class="info">
+        Compra no Market do NPC, até 9.999 por vez, uma compra a cada 4 s, com a conta ligada no deck. Se o ouro não
+        der para tudo: poções, depois revives, depois a pokébola. A Golden Potion fica de fora.
+      </p>
+    </main>
+  </body>
+</html>
