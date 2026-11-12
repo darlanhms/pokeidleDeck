@@ -326,6 +326,16 @@ async fn shell(app: &AppHandle, report: &mut Report) {
     }
     report.check(field.as_deref().is_ok_and(|v| v.contains("Conta 1")), format!("janela do nome abre com o nome atual ({field:?})"));
     if let Some(prompt) = app.get_webview_window("prompt") {
+        let fits = webkit::call_async(
+            prompt.as_ref(),
+            "const r = document.querySelector('.actions').getBoundingClientRect(); return [Math.round(r.bottom), innerHeight]",
+            Duration::from_secs(5),
+        )
+        .await;
+        let ok = fits.as_deref().ok().and_then(|j| serde_json::from_str::<[f64; 2]>(j).ok()).is_some_and(|[bottom, height]| bottom <= height);
+        report.check(ok, format!("os botões cabem na janela do nome (fundo, altura: {fits:?})"));
+    }
+    if let Some(prompt) = app.get_webview_window("prompt") {
         let _ = webkit::call_async(
             prompt.as_ref(),
             "document.querySelector('#value').value = '  Main  '; document.querySelector('#form').requestSubmit(); return true",

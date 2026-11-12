@@ -9,6 +9,7 @@ fn main() {
         "account_eval",
         "account_report",
         "prompt_info",
+        "prompt_fit",
         "prompt_submit",
         "kick_status",
     ]);

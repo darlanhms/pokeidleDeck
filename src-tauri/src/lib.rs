@@ -28,6 +28,7 @@ pub fn run() {
             accounts::account_eval,
             accounts::account_report,
             prompt::prompt_info,
+            prompt::prompt_fit,
             prompt::prompt_submit,
             kick::kick_status,
         ])

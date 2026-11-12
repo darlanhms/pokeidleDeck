@@ -3,5 +3,5 @@
   "identifier": "prompt",
   "description": "A janelinha que pede o nome da conta",
   "windows": ["prompt"],
-  "permissions": ["core:default", "allow-prompt-info", "allow-prompt-submit"]
+  "permissions": ["core:default", "allow-prompt-info", "allow-prompt-fit", "allow-prompt-submit"]
 }

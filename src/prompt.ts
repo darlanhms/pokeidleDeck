@@ -12,8 +12,15 @@ async function load() {
   document.title = info.title;
   label.textContent = info.label;
   input.value = info.value;
+  await fitContent();
   input.focus();
   input.select();
+}
+
+// A altura depende de quantas linhas o texto ocupa; a janela segue o conteúdo em vez de cortar os botões.
+async function fitContent() {
+  const form = document.querySelector<HTMLElement>("#form")!;
+  await invoke("prompt_fit", { height: form.getBoundingClientRect().height });
 }
 
 const submit = (value: string | null) => invoke("prompt_submit", { value });

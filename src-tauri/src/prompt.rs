@@ -29,7 +29,7 @@ pub fn rename(app: &AppHandle, id: Uuid, title: &str) {
     };
     *app.state::<PromptState>().0.lock().unwrap() = Some(PromptInfo {
         title: title.to_owned(),
-        label: "Nome que aparece no deck (por exemplo, o nick do jogo):".to_owned(),
+        label: "Nome no deck (o nick do jogo, por exemplo):".to_owned(),
         value: name,
         id,
     });
@@ -65,6 +65,14 @@ pub fn rename(app: &AppHandle, id: Uuid, title: &str) {
 #[tauri::command]
 pub fn prompt_info(app: AppHandle) -> Option<PromptInfo> {
     app.state::<PromptState>().0.lock().unwrap().clone()
+}
+
+/// A página mede o formulário; a janela fica com essa altura mais a barra de título, que fica por cima
+/// do conteúdo e cortaria os botões.
+#[tauri::command]
+pub fn prompt_fit(window: WebviewWindow, height: f64) {
+    let inset = window.ns_window().map_or(0.0, deck::titlebar_inset_of);
+    let _ = window.set_size(tauri::LogicalSize::new(SIZE.0, height.ceil() + inset));
 }
 
 /// `value` vazio é cancelar.
