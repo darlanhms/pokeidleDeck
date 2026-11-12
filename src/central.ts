@@ -140,7 +140,7 @@ function menuFor(account: AccountView, site: SiteView, row: Row): HTMLElement {
     menu.append(el("span", { className: "menu-title", textContent: "Resgatar" }));
     for (const reward of row.rewards) {
       const missing = (reward.cost - (row.points ?? 0));
-      const detail = reward.blocked ?? (reward.affordable ? fmt(reward.cost) : `faltam ${fmt(missing)}`);
+      const detail = reward.blocked ?? (reward.affordable ? fmt(reward.cost) : `${fmt(reward.cost)} · faltam ${fmt(missing)}`);
       const item = el("button", { type: "button", role: "menuitem", disabled: !reward.affordable }, REWARD_LABEL[reward.kind], el("span", { textContent: detail }));
       item.addEventListener("click", async () => {
         close();
