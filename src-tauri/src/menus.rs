@@ -130,10 +130,15 @@ pub fn sync_app_menu(app: &AppHandle) {
             c.stacked
         )
     });
-    let state = app.state::<AppMenuState>();
-    let mut last = state.0.lock().unwrap();
-    if last.as_deref() == Some(signature.as_str()) {
-        return;
+    // A assinatura nova é gravada antes de trocar o menu e o lock sai antes da troca: no Windows trocar a
+    // barra de menus redimensiona a janela na hora, o que chama o refresh e este sync de novo, por dentro.
+    {
+        let state = app.state::<AppMenuState>();
+        let mut last = state.0.lock().unwrap();
+        if last.as_deref() == Some(signature.as_str()) {
+            return;
+        }
+        *last = Some(signature);
     }
     // No Windows a barra de menus é de cada janela: só a do deck tem (as de lives e a central, não).
     #[cfg(target_os = "macos")]
@@ -143,9 +148,9 @@ pub fn sync_app_menu(app: &AppHandle) {
         Some(window) => app_menu(app).and_then(|menu| window.set_menu(menu)),
         None => return,
     };
-    match applied {
-        Ok(_) => *last = Some(signature),
-        Err(err) => eprintln!("[deck] barra de menus: {err}"),
+    if let Err(err) = applied {
+        *app.state::<AppMenuState>().0.lock().unwrap() = None;
+        eprintln!("[deck] barra de menus: {err}");
     }
 }
 

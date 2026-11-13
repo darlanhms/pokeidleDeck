@@ -307,34 +307,45 @@ fn layout(app: &AppHandle, id: Uuid) {
         position: LogicalPosition::new(0.0, inset + TAB_BAR).into(),
         size: LogicalSize::new(size.width, (size.height - inset - TAB_BAR).max(0.0)).into(),
     };
-    let lives = app.state::<Lives>();
-    let windows = lives.windows.lock().unwrap();
-    let Some(state) = windows.get(&id) else { return };
-    let points = state.points && !state.chats.is_empty();
-    for (index, slot) in state.slots.iter().enumerate() {
-        let Some(webview) = app.get_webview(&slot.label) else { continue };
+    // O que mostrar sai do estado com o lock; as chamadas ao WebView2 vêm depois, sem ele (no Windows elas
+    // processam mensagens no meio e podem voltar aqui por dentro).
+    let (slots, chats) = {
+        let lives = app.state::<Lives>();
+        let windows = lives.windows.lock().unwrap();
+        let Some(state) = windows.get(&id) else { return };
+        let points = state.points && !state.chats.is_empty();
+        let slots: Vec<(String, bool)> = state
+            .slots
+            .iter()
+            .enumerate()
+            .map(|(index, slot)| (slot.label.clone(), !points && slot.url.is_some() && (!state.revealed || index == state.selected)))
+            .collect();
+        let chats: Vec<(String, Site)> =
+            if points { state.chats.iter().map(|c| (c.label.clone(), c.site)).collect() } else { Vec::new() };
+        (slots, chats)
+    };
+    for (label, visible) in &slots {
+        let Some(webview) = app.get_webview(label) else { continue };
         let _ = webview.set_bounds(content);
-        let visible = !points && slot.url.is_some() && (!state.revealed || index == state.selected);
-        let _ = if visible { webview.show() } else { webview.hide() };
+        let _ = if *visible { webview.show() } else { webview.hide() };
     }
-    if points {
+    if !chats.is_empty() {
         let height = (size.height - inset - TAB_BAR).max(0.0);
-        let width = size.width / state.chats.len() as f64;
-        for (index, chat) in state.chats.iter().enumerate() {
-            let Some(webview) = app.get_webview(&chat.label) else { continue };
+        let width = size.width / chats.len() as f64;
+        for (index, (label, site)) in chats.iter().enumerate() {
+            let Some(webview) = app.get_webview(label) else { continue };
             let _ = webview.set_bounds(Rect {
                 position: LogicalPosition::new(index as f64 * width, inset + TAB_BAR).into(),
                 size: LogicalSize::new(width, height).into(),
             });
             // A Kick só mostra o botão dos pontos com a página larga (desktop): o zoom encolhe a página
             // para ela caber na coluna com esse layout.
-            if chat.site == Site::Kick {
+            if *site == Site::Kick {
                 let _ = webview.set_zoom((width / KICK_DESKTOP_WIDTH).clamp(0.35, 1.0));
             }
             let _ = webview.show();
         }
     }
-    drop(windows);
     let _ = app.emit_to(ui_label(id).as_str(), "lives-ui", ui_state(app, id));
 }
 
@@ -399,7 +410,10 @@ pub fn reveal_all(app: &AppHandle) {
     }
 }
 
-fn navigate(app: &AppHandle, slot: &mut Slot, url: Option<String>, channel: Option<String>) {
+/// Marca na vaga a página nova e devolve (vaga, endereço) para `load`, que roda depois de soltar o lock das
+/// janelas: no Windows a chamada ao WebView2 processa mensagens no meio e pode voltar ao deck por dentro.
+#[must_use]
+fn navigate(slot: &mut Slot, url: Option<String>, channel: Option<String>) -> (String, String) {
     if slot.channel != channel {
         slot.reloads = 0;
         slot.retries = 0;
@@ -410,9 +424,12 @@ fn navigate(app: &AppHandle, slot: &mut Slot, url: Option<String>, channel: Opti
     slot.playing = None;
     slot.channel = channel;
     slot.url = url.clone();
-    if let Some(webview) = app.get_webview(&slot.label) {
-        let target = url.unwrap_or_else(|| "about:blank".to_owned());
-        if let Ok(target) = target.parse() {
+    (slot.label.clone(), url.unwrap_or_else(|| "about:blank".to_owned()))
+}
+
+fn load(app: &AppHandle, pages: Vec<(String, String)>) {
+    for (label, target) in pages {
+        if let (Some(webview), Ok(target)) = (app.get_webview(&label), target.parse()) {
             let _ = webview.navigate(target);
         }
     }
@@ -427,6 +444,7 @@ fn apply(app: &AppHandle, id: Uuid) {
     let lives = app.state::<Lives>();
     let live = lives.live.lock().unwrap().clone();
     let answered = lives.answered.lock().unwrap().clone();
+    let mut pages = Vec::new();
     let mut windows = lives.windows.lock().unwrap();
     let Some(state) = windows.get_mut(&id) else { return };
     for (index, site) in [Site::Twitch, Site::Kick].into_iter().enumerate() {
@@ -451,11 +469,12 @@ fn apply(app: &AppHandle, id: Uuid) {
             slot.why = target.map(|(_, why)| why);
             if slot.channel != channel {
                 let url = channel.as_ref().map(|c| player_url(site, c));
-                navigate(app, slot, url, channel);
+                pages.push(navigate(slot, url, channel));
             }
         }
     }
     drop(windows);
+    load(app, pages);
     layout(app, id);
     emit_summary(app);
 }
@@ -541,6 +560,7 @@ async fn refresh_login(app: &AppHandle, id: Uuid) {
     }
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
+        let mut pages = Vec::new();
         {
             let lives = handle.state::<Lives>();
             let mut windows = lives.windows.lock().unwrap();
@@ -551,11 +571,12 @@ async fn refresh_login(app: &AppHandle, id: Uuid) {
                         _ => (!kick).then(|| KICK_LOGIN.to_owned()),
                     };
                     if slot.url != url {
-                        navigate(&handle, slot, url, None);
+                        pages.push(navigate(slot, url, None));
                     }
                 }
             }
         }
+        load(&handle, pages);
         apply(&handle, id);
     });
 }
@@ -686,11 +707,15 @@ async fn watch_loop(app: AppHandle) {
                 let handle = app.clone();
                 let label = label.clone();
                 let _ = app.run_on_main_thread(move || {
-                    let lives = handle.state::<Lives>();
-                    let mut windows = lives.windows.lock().unwrap();
-                    if let Some(slot) = windows.get_mut(&id).and_then(|w| w.slots.iter_mut().find(|s| s.label == label)) {
-                        navigate(&handle, slot, url, channel);
-                    }
+                    let page = {
+                        let lives = handle.state::<Lives>();
+                        let mut windows = lives.windows.lock().unwrap();
+                        windows
+                            .get_mut(&id)
+                            .and_then(|w| w.slots.iter_mut().find(|s| s.label == label))
+                            .map(|slot| navigate(slot, url, channel))
+                    };
+                    load(&handle, page.into_iter().collect());
                 });
             }
         }

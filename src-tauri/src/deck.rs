@@ -360,10 +360,11 @@ pub fn refresh(app: &AppHandle) {
                 let _ = webview.hide();
             }
         }
-        let mut applied = deck.applied_zoom.lock().unwrap();
-        if applied.get(&pane.id) != Some(&view.zoom) {
+        // Nenhum lock fica preso durante a chamada ao WebView2, que pode processar mensagens no meio e
+        // voltar a este refresh por dentro.
+        let changed = deck.applied_zoom.lock().unwrap().insert(pane.id, view.zoom) != Some(view.zoom);
+        if changed {
             let _ = webview.set_zoom(view.zoom);
-            applied.insert(pane.id, view.zoom);
         }
     }
     let _ = app.emit_to("deck", "deck", &view);
