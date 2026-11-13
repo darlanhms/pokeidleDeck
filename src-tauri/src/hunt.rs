@@ -97,10 +97,14 @@ fn read_bundle(dir: &Path) -> Result<Bundle, String> {
     for entry in manifest.content_scripts.iter().filter(|c| game(c)) {
         for file in &entry.css {
             let css = serde_json::to_string(&read(file)?).unwrap_or_default();
+            // No Chromium (Windows) o script de início roda antes de existir o <html>: espera ele aparecer.
             scripts.push(format!(
                 "(() => {{ if (window.top !== window) return; const s = document.createElement('style'); \
                  s.dataset.deck = 'hunt'; s.textContent = {css}; \
-                 (document.head || document.documentElement).appendChild(s); }})();"
+                 const add = () => (document.head || document.documentElement).appendChild(s); \
+                 if (document.documentElement) return add(); \
+                 new MutationObserver((_, o) => {{ if (document.documentElement) {{ o.disconnect(); add(); }} }}) \
+                   .observe(document, {{ childList: true }}); }})();"
             ));
         }
         // O que roda no mundo isolado é a ponte da lista, que o deck substitui por `BRIDGE_JS`.
