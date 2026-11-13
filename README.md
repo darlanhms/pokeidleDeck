@@ -6,6 +6,8 @@
 
 **Até 4 contas do [PokeIdle](https://pokeidle.io) numa janela só, com recompra e lives no automático.**
 
+Multiplataforma: macOS e Windows.
+
 [![Baixar](https://img.shields.io/github/v/release/darlanhms/pokeidleDeck?label=baixar&color=f0a63a)](https://github.com/darlanhms/pokeidleDeck/releases/latest)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-2a2e37?logo=apple)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-2a2e37?logo=windows)
@@ -17,11 +19,13 @@
 
 ---
 
-Um app para macOS e Windows que joga o [PokeIdle](https://pokeidle.io) em até 4 contas ao mesmo tempo, numa janela só, e
-cuida sozinho do que é repetitivo: comprar itens, e assistir às lives da Twitch e da Kick para ganhar o bônus do
-jogo.
+Um app multiplataforma (macOS e Windows) que joga o [PokeIdle](https://pokeidle.io) em até 4 contas ao mesmo tempo,
+numa janela só, e cuida sozinho do que é repetitivo: comprar itens, e assistir às lives da Twitch e da Kick para
+ganhar o bônus do jogo.
 
-Nasceu como a versão para Mac do [PokeIdleMulti](https://github.com/artbruno35/PokeIdleMulti), que é só para Windows.
+É o mesmo app nos dois sistemas, com as mesmas funções; cada um usa o navegador embutido do próprio sistema (WebKit no
+macOS, WebView2/Edge no Windows). Nasceu como a versão para Mac do
+[PokeIdleMulti](https://github.com/artbruno35/PokeIdleMulti), que é só para Windows.
 
 ## O que ele faz
 
@@ -102,12 +106,18 @@ O instalador não é assinado, então o Windows SmartScreen pode avisar que "o W
 1. Clique em **Mais informações**.
 2. Clique em **Executar assim mesmo**.
 
+Com o **Controle Inteligente de Aplicativos** (Smart App Control) ligado, o Windows pode bloquear o app sem dar
+opção de abrir, porque ele não tem assinatura digital. Nesse caso não há como liberar só o deck: o controle precisa
+estar desligado ou em avaliação (Segurança do Windows → Controle de aplicativos e do navegador). Desligá-lo não tem
+volta sem reinstalar o Windows.
+
 ### Primeiros passos
 
 1. Na primeira conta, entre no PokeIdle normalmente.
 2. Para mais contas, clique em **Nova conta** na barra de cima.
-3. Para as lives, abra a pílula **Lives** na barra de cima e entre na Twitch e na Kick em cada conta, pela
-   própria central. Vincule também a Twitch e a Kick dentro do jogo, senão os pontos não viram bônus.
+3. Para as lives, abra a pílula **Lives** na barra de cima e entre na Twitch e na Kick em cada conta, pelos
+   avisos "Entrar na Twitch" e "Entrar na Kick". No Windows o login da Twitch abre numa janela à parte, que fecha
+   sozinha quando você entra. Vincule também a Twitch e a Kick dentro do jogo, senão os pontos não viram bônus.
 
 ## Para desenvolvedores
 
@@ -119,9 +129,9 @@ npm run tauri dev
 Testes: `npm test` e `cargo test` em `src-tauri`. Os autotestes que abrem o app estão em `SPIKE.md`.
 
 Para lançar uma versão, suba uma tag `v*`. O GitHub Actions (`.github/workflows/release.yml`) roda os testes,
-gera o `.dmg` universal e publica no Release:
+gera o `.dmg` universal do macOS e o instalador `.exe` do Windows, e publica os dois no Release:
 
 ```
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
